@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="{{ 'zh-CN' if lang == 'zh' else 'en' }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>x-download</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⬇️ x-download</h1>
+            <p class="subtitle" id="subtitle">yt-dlp 視頻下載服務</p>
+        </header>
+
+        <section class="download-section">
+            <div class="input-group">
+                <input type="text" id="urlInput" placeholder="請輸入視頻鏈接 (YouTube / Bilibili / Twitter / 抖音...)" autocomplete="off">
+                <button id="downloadBtn" onclick="startDownload()">開始下載</button>
+            </div>
+            <p class="notice" id="notice">最多保留 50 個文件，超出自動刪除最早的文件</p>
+        </section>
+
+        <section class="tasks-section">
+            <h2>📋 下載任務</h2>
+            <div id="tasksList">
+                <p class="empty" id="emptyMsg">暫無下載任務</p>
+            </div>
+        </section>
+
+        <footer>
+            <p>Powered by <a href="https://github.com/yt-dlp/yt-dlp" target="_blank">yt-dlp</a> | x-download</p>
+        </footer>
+    </div>
+
+    <script>
+        const lang = "{{ lang }}";
+        const i18n = {
+            zh: {
+                subtitle: "yt-dlp 視頻下載服務",
+                placeholder: "請輸入視頻鏈接 (YouTube / Bilibili / Twitter / 抖音...)",
+                downloadBtn: "開始下載",
+                status: { pending: "等待中", downloading: "下載中", completed: "已完成", failed: "失敗" },
+                deleteBtn: "刪除",
+                noTasks: "暫無下載任務",
+                maxNotice: (n) => `最多保留 ${n} 個文件，超出自動刪除最早的文件`,
+                downloading: "正在下載...",
+                errorRequired: "請輸入鏈接地址",
+                errorNetwork: "網絡錯誤，請稍後重試",
+                confirmDelete: "確定刪除此文件?",
+                success: "下載成功",
+                failed: "下載失敗"
+            },
+            en: {
+                subtitle: "yt-dlp Video Downloader",
+                placeholder: "Enter video URL (YouTube / Bilibili / Twitter / TikTok...)",
+                downloadBtn: "Start Download",
+                status: { pending: "Pending", downloading: "Downloading", completed: "Completed", failed: "Failed" },
+                deleteBtn: "Delete",
+                noTasks: "No download tasks",
+                maxNotice: (n) => `Max ${n} files retained, oldest auto-deleted when exceeded`,
+                downloading: "Downloading...",
+                errorRequired: "Please enter a URL",
+                errorNetwork: "Network error, please try again later",
+                confirmDelete: "Delete this file?",
+                success: "Download complete",
+                failed: "Download failed"
+            }
+        };
+        const t = i18n[lang] || i18n['zh'];
+
+        let maxFiles = 50;
+        let currentTaskId = null;
+
+        // 初始化 / Init
+        function init() {
+            document.getElementById('subtitle').textContent = t.subtitle;
+            document.getElementById('urlInput').placeholder = t.placeholder;
+            document.getElementById('downloadBtn').textContent = t.downloadBtn;
+            fetchConfig();
+        }
+
+        function fetchConfig() {
+            fetch('/api/config')
+                .then(r => r.json())
+                .then(data => {
+                    maxFiles = data.max_files || 50;
+                    document.getElementById('notice').textContent = t.maxNotice(maxFiles);
+                })
+                .catch(() => {});
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatSize(bytes) {
+            if (!bytes) return '-';
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+            return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+        }
+
+        function timeAgo(ts) {
+            const diff = Date.now() / 1000 - ts;
+            if (diff < 60) return '刚刚';
+            if (diff < 3600) return Math.floor(diff / 60) + '分鐘前';
+            if (diff < 86400) return Math.floor(diff / 3600) + '小時前';
+            const d = new Date(ts * 1000);
+            return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+        }
+
+        async function startDownload() {
+            const url = document.getElementById('urlInput').value.trim();
+            if (!url) {
+                alert(t.errorRequired);
+                return;
+            }
+
+            const btn = document.getElementById('downloadBtn');
+            btn.disabled = true;
+            btn.textContent = t.downloading;
+
+            try {
+                const res = await fetch('/api/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('urlInput').value = '';
+                    refreshTasks();
+                } else {
+                    alert(data.message || 'Error');
+                    btn.disabled = false;
+                    btn.textContent = t.downloadBtn;
+                }
+            } catch (e) {
+                alert(t.errorNetwork);
+                btn.disabled = false;
+                btn.textContent = t.downloadBtn;
+            }
+        }
+
+        async function deleteTask(taskId) {
+            if (!confirm(t.confirmDelete)) return;
+            try {
+                const res = await fetch('/api/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ task_id: taskId })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    refreshTasks();
+                }
+            } catch (e) {
+                alert(t.errorNetwork);
+            }
+        }
+
+        async function refreshTasks() {
+            try {
+                const res = await fetch('/api/tasks');
+                const data = await res.json();
+                renderTasks(data.tasks, data.max_files);
+                maxFiles = data.max_files;
+                document.getElementById('notice').textContent = t.maxNotice(maxFiles);
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function renderTasks(tasks, max) {
+            const container = document.getElementById('tasksList');
+            if (!tasks || tasks.length === 0) {
+                container.innerHTML = `<p class="empty">${t.noTasks}</p>`;
+                return;
+            }
+
+            let html = '<table class="task-table"><thead><tr><th>文件</th><th>大小</th><th>時間</th><th>狀態</th><th>操作</th></tr></thead><tbody>';
+            tasks.forEach(task => {
+                const statusClass = task.status;
+                const statusText = t.status[task.status] || task.status;
+                const fileName = task.file ? escapeHtml(task.file) : '-';
+                const fileUrl = task.file ? `/downloads/${encodeURIComponent(task.file)}` : '#';
+                const size = task.size || '-';
+                
+                html += `<tr class="task-row">
+                    <td class="file-cell">${task.file ? `<a href="${fileUrl}" class="file-link" download>${fileName}</a>` : '-'}</td>
+                    <td>${size}</td>
+                    <td>${timeAgo(task.created_at)}</td>
+                    <td><span class="status ${statusClass}">${statusText}</span></td>
+                    <td><button class="delete-btn" onclick="deleteTask('${task.task_id}')">${t.deleteBtn}</button></td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        // Enter key to submit
+        document.addEventListener('DOMContentLoaded', () => {
+            init();
+            setInterval(refreshTasks, 2000);
+            document.getElementById('urlInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') startDownload();
+            });
+        });
+    </script>
+</body>
+</html>
