@@ -151,7 +151,7 @@ def get_video_info(url: str) -> dict:
     return {'success': False, 'error': t('no_info')}
 
 
-def download_video(url: str, task_id: str, format_id: str = 'best') -> dict:
+def download_video(url: str, task_id: str, format_id: str = '') -> dict:
     """下载视频"""
     try:
         output_template = os.path.join(DOWNLOAD_DIR, f'%(title)s_{task_id}.%(ext)s')
@@ -160,9 +160,16 @@ def download_video(url: str, task_id: str, format_id: str = 'best') -> dict:
             'yt-dlp',
             '-o', output_template,
             '--no-playlist',
-            '-f', format_id,
             url
         ]
+        if format_id:
+            cmd = [
+                'yt-dlp',
+                '-o', output_template,
+                '--no-playlist',
+                '-f', format_id,
+                url
+            ]
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         
@@ -227,7 +234,7 @@ def api_download():
     """下载视频"""
     data = request.get_json()
     url = data.get('url', '').strip()
-    format_id = data.get('format', 'best')
+    format_id = data.get('format', '')
     
     if not url:
         return jsonify({'success': False, 'error': t('enter_url')})
