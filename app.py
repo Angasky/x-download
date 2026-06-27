@@ -288,14 +288,6 @@ def serve_file(filename):
     if not os.path.exists(file_path):
         return jsonify({'error': t('no_info')}), 404
     
-    @after_this_request
-    def remove_file(response):
-        try:
-            os.remove(file_path)
-        except Exception:
-            pass
-        return response
-    
     return send_file(file_path, as_attachment=True)
 
 
