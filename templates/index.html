@@ -3,165 +3,251 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>x-download</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <title>x-download - 视频下载工具</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>⬇️ x-download</h1>
-            <p class="subtitle" id="subtitle">yt-dlp 視頻下載服務 / Video Downloader</p>
+            <h1>🎬 x-download</h1>
+            <p class="subtitle">简单快速的视频下载工具</p>
         </header>
 
-        <section class="download-section">
-            <div class="input-group">
-                <input type="text" id="urlInput" placeholder="請輸入視頻鏈接 / Enter video URL (YouTube / Bilibili / Twitter / 抖音...)" autocomplete="off">
-                <button id="downloadBtn" onclick="startDownload()">開始下載 / Start Download</button>
-            </div>
-            <p class="notice" id="notice">最多保留 50 個文件，超出自動刪除最早的文件 / Max 50 files retained, oldest auto-deleted when exceeded</p>
-        </section>
+        <main>
+            <div class="download-section">
+                <div class="input-group">
+                    <input 
+                        type="text" 
+                        id="urlInput" 
+                        placeholder="粘贴视频链接（支持 YouTube、抖音、B站等）"
+                        autocomplete="off"
+                    >
+                    <button onclick="getVideoInfo()" id="infoBtn">
+                        获取信息
+                    </button>
+                </div>
 
-        <section class="tasks-section">
-            <h2>📋 下載任務 / Download Tasks</h2>
-            <div id="tasksList">
-                <p class="empty" id="emptyMsg">暫無下載任務 / No download tasks</p>
+                <div id="videoInfo" class="video-info" style="display: none;">
+                    <div class="info-card">
+                        <img id="thumbnail" src="" alt="视频封面" class="thumbnail">
+                        <div class="info-details">
+                            <h3 id="videoTitle"></h3>
+                            <p id="videoUploader"></p>
+                            <p id="videoDuration"></p>
+                        </div>
+                    </div>
+
+                    <div class="format-section">
+                        <label>选择画质：</label>
+                        <select id="formatSelect">
+                            <option value="best">最佳画质（推荐）</option>
+                        </select>
+                    </div>
+
+                    <button onclick="startDownload()" id="downloadBtn" class="download-btn">
+                        开始下载
+                    </button>
+                </div>
+
+                <div id="progress" class="progress" style="display: none;">
+                    <div class="progress-bar">
+                        <div id="progressFill" class="progress-fill"></div>
+                    </div>
+                    <p id="progressText">正在下载...</p>
+                </div>
+
+                <div id="result" class="result" style="display: none;"></div>
             </div>
-        </section>
+
+            <div class="status-section">
+                <h3>服务状态</h3>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <span class="label">状态</span>
+                        <span class="value" id="statusValue">检查中...</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">当前文件数</span>
+                        <span class="value" id="fileCount">-</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">最大保留数</span>
+                        <span class="value" id="maxFiles">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="help-section">
+                <h3>使用说明</h3>
+                <ul>
+                    <li>粘贴视频链接，点击"获取信息"查看视频详情</li>
+                    <li>选择合适的画质，点击"开始下载"</li>
+                    <li>下载完成后会自动保存到服务器</li>
+                    <li>支持 YouTube、抖音、B站、Twitter 等主流平台</li>
+                    <li>系统会自动清理旧文件，保持最新的 {{ max_files }} 个视频</li>
+                </ul>
+            </div>
+        </main>
 
         <footer>
-            <p>Powered by <a href="https://github.com/yt-dlp/yt-dlp" target="_blank">yt-dlp</a> | x-download</p>
+            <p> Powered by yt-dlp | x-download v1.0</p>
         </footer>
     </div>
 
     <script>
-        let maxFiles = 50;
+        const API_BASE = window.location.origin;
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+        // 格式化时长
+        function formatDuration(seconds) {
+            if (!seconds) return '未知';
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            if (h > 0) return `${h}小时${m}分`;
+            if (m > 0) return `${m}分${s}秒`;
+            return `${s}秒`;
         }
 
-        function timeAgo(ts) {
-            const diff = Date.now() / 1000 - ts;
-            if (diff < 60) return '剛剛 / just now';
-            if (diff < 3600) return Math.floor(diff / 60) + '分鐘前 / ' + Math.floor(diff / 60) + 'm ago';
-            if (diff < 86400) return Math.floor(diff / 3600) + '小時前 / ' + Math.floor(diff / 3600) + 'h ago';
-            const d = new Date(ts * 1000);
-            return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
-        }
-
-        async function startDownload() {
+        // 获取视频信息
+        async function getVideoInfo() {
             const url = document.getElementById('urlInput').value.trim();
             if (!url) {
-                alert('請輸入鏈接地址 / Please enter a URL');
+                alert('请输入视频链接');
                 return;
             }
 
-            const btn = document.getElementById('downloadBtn');
+            const btn = document.getElementById('infoBtn');
             btn.disabled = true;
-            btn.textContent = '正在下載... / Downloading...';
+            btn.textContent = '获取中...';
 
             try {
-                const res = await fetch('/api/download', {
+                const response = await fetch(`${API_BASE}/api/info`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url })
                 });
-                const data = await res.json();
+
+                const data = await response.json();
+
                 if (data.success) {
-                    document.getElementById('urlInput').value = '';
-                    refreshTasks();
+                    document.getElementById('videoTitle').textContent = data.title;
+                    document.getElementById('videoUploader').textContent = `上传者: ${data.uploader}`;
+                    document.getElementById('videoDuration').textContent = `时长: ${formatDuration(data.duration)}`;
+                    
+                    if (data.thumbnail) {
+                        document.getElementById('thumbnail').src = data.thumbnail;
+                    }
+                    
+                    document.getElementById('videoInfo').style.display = 'block';
                 } else {
-                    alert(data.message || 'Error');
-                    btn.disabled = false;
-                    btn.textContent = '開始下載 / Start Download';
+                    alert('获取视频信息失败: ' + data.error);
                 }
-            } catch (e) {
-                alert('網絡錯誤，請稍後重試 / Network error, please try again later');
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            } finally {
                 btn.disabled = false;
-                btn.textContent = '開始下載 / Start Download';
+                btn.textContent = '获取信息';
             }
         }
 
-        async function deleteTask(taskId) {
-            if (!confirm('確定刪除此文件? / Delete this file?')) return;
+        // 开始下载
+        async function startDownload() {
+            const url = document.getElementById('urlInput').value.trim();
+            const formatId = document.getElementById('formatSelect').value;
+            
+            const btn = document.getElementById('downloadBtn');
+            btn.disabled = true;
+            btn.textContent = '下载中...';
+
+            const progressDiv = document.getElementById('progress');
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            progressDiv.style.display = 'block';
+
+            // 模拟进度
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += Math.random() * 15;
+                if (progress > 90) progress = 90;
+                progressFill.style.width = progress + '%';
+                progressText.textContent = `正在下载... ${Math.floor(progress)}%`;
+            }, 500);
+
             try {
-                const res = await fetch('/api/delete', {
+                const response = await fetch(`${API_BASE}/api/download`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ task_id: taskId })
+                    body: JSON.stringify({ url, format: formatId })
                 });
-                const data = await res.json();
+
+                const data = await response.json();
+                clearInterval(interval);
+                progressFill.style.width = '100%';
+                progressText.textContent = '下载完成！';
+
+                const resultDiv = document.getElementById('result');
                 if (data.success) {
-                    refreshTasks();
+                    resultDiv.innerHTML = `
+                        <div class="success-message">
+                            <h4>✓ 下载成功！</h4>
+                            <p>文件名: ${data.file}</p>
+                            <p>大小: ${(data.size / 1024 / 1024).toFixed(2)} MB</p>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="error-message">
+                            <h4>✗ 下载失败</h4>
+                            <p>${data.error}</p>
+                        </div>
+                    `;
                 }
-            } catch (e) {
-                alert('網絡錯誤，請稍後重試 / Network error, please try again');
+                resultDiv.style.display = 'block';
+
+                // 刷新状态
+                setTimeout(checkStatus, 2000);
+            } catch (error) {
+                clearInterval(interval);
+                document.getElementById('result').innerHTML = `
+                    <div class="error-message">
+                        <h4>✗ 请求失败</h4>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+                document.getElementById('result').style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '开始下载';
             }
         }
 
-        async function refreshTasks() {
+        // 检查服务状态
+        async function checkStatus() {
             try {
-                const res = await fetch('/api/tasks');
-                const data = await res.json();
-                renderTasks(data.tasks, data.max_files);
-                maxFiles = data.max_files;
-                document.getElementById('notice').textContent = 
-                    '最多保留 ' + maxFiles + ' 個文件，超出自動刪除最早的文件 / Max ' + maxFiles + ' files retained, oldest auto-deleted';
-            } catch (e) {
-                console.error(e);
-            }
-        }
-
-        function renderTasks(tasks, max) {
-            const container = document.getElementById('tasksList');
-            if (!tasks || tasks.length === 0) {
-                container.innerHTML = '<p class="empty">暫無下載任務 / No download tasks</p>';
-                return;
-            }
-
-            let html = '<table class="task-table"><thead><tr><th>文件 / File</th><th>大小 / Size</th><th>時間 / Time</th><th>狀態 / Status</th><th>操作 / Action</th></tr></thead><tbody>';
-            tasks.forEach(task => {
-                const statusClass = task.status;
-                const statusMap = {
-                    'pending': '等待中 / Pending',
-                    'downloading': '下載中 / Downloading',
-                    'completed': '已完成 / Completed',
-                    'failed': '失敗 / Failed'
-                };
-                const statusText = statusMap[task.status] || task.status;
-                const fileName = task.file ? escapeHtml(task.file) : '-';
-                const fileUrl = task.file ? '/downloads/' + encodeURIComponent(task.file) : '#';
-                const size = task.size || '-';
+                const response = await fetch(`${API_BASE}/api/status`);
+                const data = await response.json();
                 
-                html += '<tr class="task-row">' +
-                    '<td class="file-cell">' + (task.file ? '<a href="' + fileUrl + '" class="file-link" download>' + fileName + '</a>' : '-') + '</td>' +
-                    '<td>' + size + '</td>' +
-                    '<td>' + timeAgo(task.created_at) + '</td>' +
-                    '<td><span class="status ' + statusClass + '">' + statusText + '</span></td>' +
-                    '<td><button class="delete-btn" onclick="deleteTask(\'' + task.task_id + '\')">刪除 / Delete</button></td>' +
-                '</tr>';
-            });
-            html += '</tbody></table>';
-            container.innerHTML = html;
+                document.getElementById('statusValue').textContent = data.status === 'running' ? '✓ 运行中' : '✗ 已停止';
+                document.getElementById('fileCount').textContent = data.files;
+                document.getElementById('maxFiles').textContent = data.max_files;
+            } catch (error) {
+                document.getElementById('statusValue').textContent = '✗ 连接失败';
+            }
         }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            fetchConfig();
-            setInterval(refreshTasks, 2000);
-            document.getElementById('urlInput').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') startDownload();
-            });
+        // 页面加载时检查状态
+        window.onload = function() {
+            checkStatus();
+            // 每30秒刷新一次状态
+            setInterval(checkStatus, 30000);
+        };
+
+        // 回车键触发获取信息
+        document.getElementById('urlInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                getVideoInfo();
+            }
         });
-
-        async function fetchConfig() {
-            try {
-                const res = await fetch('/api/config');
-                const data = await res.json();
-                maxFiles = data.max_files || 50;
-            } catch (e) {}
-        }
     </script>
 </body>
 </html>
