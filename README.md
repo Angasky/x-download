@@ -13,7 +13,7 @@ A lightweight, easy-to-deploy video download web service supporting YouTube, Bil
 - 🚀 **一鍵安裝** / One-click install
 - 🌐 **多平台支持** / Multi-platform: YouTube, Bilibili, Twitter, TikTok, Douyin...
 - 🧹 **自動清理** / Auto-cleanup: keeps latest N files
-- 🌍 **中英文界面** / Bilingual UI (Chinese / English)
+- 🌍 **中英雙文界面** / Bilingual UI (中文為主 / Chinese primary)
 - 📱 **響應式設計** / Responsive design
 - 🔄 **後台下載** / Background downloads with real-time status
 - ⚙️ **環境變量配置** / Environment variable based config
@@ -23,21 +23,21 @@ A lightweight, easy-to-deploy video download web service supporting YouTube, Bil
 ## 🚀 快速開始 / Quick Start
 
 ```bash
-# 1. Clone 倉庫
-git clone git@github.com:angasky/x-download.git
+# 1. Clone 倉庫 / Clone repository
+git clone git@github.com:Angasky/x-download.git
 cd x-download
 
-# 2. 一鍵安裝
+# 2. 一鍵安裝 / One-click install
 chmod +x install.sh
 ./install.sh
 ```
 
-安裝向導會詢問以下配置：
-- 語言選擇 (中文 / English)
-- 服務端口 (默認 8080)
-- 最大保留文件數 (默認 50)
-- 安裝目錄 (默認 /opt/x-download)
-- 是否安裝 Nginx 反向代理
+安裝向導會詢問以下配置 / The installer will ask for:
+
+- 服務端口 / Service port (默認 / default: `8080`)
+- 最大保留文件數 / Max files to keep (默認 / default: `50`)
+- 安裝目錄 / Install directory (默認 / default: `/opt/x-download`)
+- 是否安裝 Nginx 反向代理 / Install Nginx reverse proxy
 
 ---
 
@@ -46,13 +46,13 @@ chmod +x install.sh
 - Linux (Debian/Ubuntu/CentOS/RHEL)
 - Python 3.8+
 - ffmpeg
-- 2GB+ RAM (推薦)
+- 2GB+ RAM (推薦 / recommended)
 
 ---
 
 ## 🔧 配置說明 / Configuration
 
-安裝完成後，配置文件位於：
+安裝完成後，配置文件位於 / After installation, config file is at:
 
 ```bash
 /opt/x-download/.env
@@ -62,12 +62,12 @@ chmod +x install.sh
 
 | 變量 / Variable | 說明 / Description | 默認值 / Default |
 |----------------|-------------------|-----------------|
-| `PORT` | 服務端口 | `8080` |
-| `MAX_FILES` | 最大保留文件數 | `50` |
-| `DOWNLOAD_DIR` | 下載文件存儲路徑 | `/opt/x-download/downloads` |
-| `LANG` | 界面語言 (`zh` / `en`) | `zh` |
+| `PORT` | 服務端口 / Service port | `8080` |
+| `MAX_FILES` | 最大保留文件數 / Max files to retain | `50` |
+| `DOWNLOAD_DIR` | 下載文件存儲路徑 / Download directory | `/opt/x-download/downloads` |
+| `LANG` | 界面語言 / Interface language | `zh` |
 
-修改配置後重啟服務：
+修改配置後重啟服務 / Restart after changes:
 
 ```bash
 sudo systemctl restart x-download
@@ -127,7 +127,7 @@ x-download/
 
 ## 📝 安裝記錄 / Installation Log
 
-> 以下為最近一次安裝時自動更新的配置信息。
+> 以下為最近一次安裝時自動更新的配置信息 / Auto-updated on last install.
 
 <!-- INSTALL_CONFIG_START -->
 端口 / Port: 8080  
@@ -150,4 +150,4 @@ PRs and issues are welcome!
 
 ---
 
-<p align="center">Made with ❤️ by <a href="https://github.com/angasky">angasky</a></p>
+<p align="center">Made with ❤️ by <a href="https://github.com/Angasky">Angasky</a></p>
