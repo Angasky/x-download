@@ -312,6 +312,40 @@ def api_i18n():
     return jsonify(I18N[lang])
 
 
+
+
+@app.route('/api/files', methods=['GET'])
+def api_files():
+    """列出下载目录中的文件"""
+    try:
+        files = []
+        for f in os.listdir(DOWNLOAD_DIR):
+            file_path = os.path.join(DOWNLOAD_DIR, f)
+            if os.path.isfile(file_path):
+                files.append({
+                    'name': f,
+                    'size': os.path.getsize(file_path),
+                    'mtime': os.path.getmtime(file_path)
+                })
+        files.sort(key=lambda x: x['mtime'], reverse=True)
+        return jsonify({'success': True, 'files': files})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/files/<filename>', methods=['DELETE'])
+def api_delete_file(filename):
+    """删除单个文件"""
+    file_path = os.path.join(DOWNLOAD_DIR, filename)
+    if not os.path.exists(file_path):
+        return jsonify({'success': False, 'error': 'File not found'}), 404
+    try:
+        os.remove(file_path)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     print(f"x-download 服务启动中... / Starting...")
     print(f"访问地址 / URL: http://0.0.0.0:{PORT}")

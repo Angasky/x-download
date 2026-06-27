@@ -91,6 +91,11 @@
                     <li id="help5">系统会自动清理旧文件，保持最新的 {max_files} 个视频</li>
                 </ul>
             </div>
+                <div id="fileListSection" class="file-list-section">
+                    <h3 id="fileListTitle">📁 已下载文件</h3>
+                    <div id="fileList" class="file-list"></div>
+                </div>
+            </div>
         </main>
 
         <footer>
@@ -156,7 +161,7 @@
             window.history.pushState({}, '', url);
             
             loadTranslations(lang);
-            checkStatus();
+            checkStatus(); loadFiles();
         }
 
         // 格式化时长
@@ -268,7 +273,7 @@
                 }
                 resultDiv.style.display = 'block';
 
-                setTimeout(checkStatus, 2000);
+                setTimeout(checkStatus, 2000); setTimeout(loadFiles, 2000);
             } catch (error) {
                 clearInterval(interval);
                 document.getElementById('result').innerHTML = `
@@ -299,6 +304,64 @@
             }
         }
 
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (!bytes) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(1024));
+            return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + units[i];
+        }
+
+        // 格式化时间
+        function formatTime(ts) {
+            if (!ts) return '';
+            const d = new Date(ts * 1000);
+            return d.toLocaleString();
+        }
+
+        // 加载文件列表
+        async function loadFiles() {
+            try {
+                const response = await fetch(`${window.location.origin}/api/files`);
+                const data = await response.json();
+                const listDiv = document.getElementById('fileList');
+                if (!data.success || !data.files.length) {
+                    listDiv.innerHTML = '<p class="empty-hint">暂无文件</p>';
+                    return;
+                }
+                listDiv.innerHTML = data.files.map(f => `
+                    <div class="file-item">
+                        <div class="file-info">
+                            <span class="file-name">${f.name}</span>
+                            <span class="file-meta">${formatFileSize(f.size)} · ${formatTime(f.mtime)}</span>
+                        </div>
+                        <div class="file-actions">
+                            <a href="/download/${f.name}" class="file-btn download-btn-file" download>⬇️ ${translations.download || '下载'}</a>
+                            <button class="file-btn delete-btn-file" onclick="deleteFile('${f.name}')">🗑️ ${translations.download_failed ? '删除' : '删除'}</button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('loadFiles failed', e);
+            }
+        }
+
+        // 删除文件
+        async function deleteFile(filename) {
+            if (!confirm('确定删除 ' + filename + ' ?')) return;
+            try {
+                const response = await fetch(`/api/files/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+                const data = await response.json();
+                if (data.success) {
+                    loadFiles();
+                } else {
+                    alert('删除失败: ' + data.error);
+                }
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            }
+        }
+
         // 初始化
         window.onload = function() {
             // 从 localStorage 或 URL 参数获取语言
@@ -307,7 +370,7 @@
             currentLang = urlLang || savedLang || '{{ lang }}';
             
             loadTranslations(currentLang);
-            checkStatus();
+            checkStatus(); loadFiles();
             setInterval(checkStatus, 30000);
         };
 
