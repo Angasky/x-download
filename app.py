@@ -20,9 +20,114 @@ app = Flask(__name__)
 PORT = int(os.getenv('PORT', 8080))
 MAX_FILES = int(os.getenv('MAX_FILES', 50))
 DOWNLOAD_DIR = os.getenv('DOWNLOAD_DIR', '/opt/x-download/downloads')
+LANG = os.getenv('LANG', 'zh')
 
 # 确保下载目录存在
 Path(DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
+
+# 多语言文本
+I18N = {
+    'zh': {
+        'title': 'x-download - 视频下载工具',
+        'subtitle': '简单快速的视频下载工具',
+        'placeholder': '粘贴视频链接（支持 YouTube、抖音、B站等）',
+        'get_info': '获取信息',
+        'getting': '获取中...',
+        'download': '开始下载',
+        'downloading': '下载中...',
+        'select_quality': '选择画质：',
+        'best_quality': '最佳画质（推荐）',
+        'status': '服务状态',
+        'running': '✓ 运行中',
+        'stopped': '✗ 已停止',
+        'connection_failed': '✗ 连接失败',
+        'current_files': '当前文件数',
+        'max_files': '最大保留数',
+        'help_title': '使用说明',
+        'help_1': '粘贴视频链接，点击"获取信息"查看视频详情',
+        'help_2': '选择合适的画质，点击"开始下载"',
+        'help_3': '下载完成后会自动保存到服务器',
+        'help_4': '支持 YouTube、抖音、B站、Twitter 等主流平台',
+        'help_5': '系统会自动清理旧文件，保持最新的 {max} 个视频',
+        'footer': 'Powered by yt-dlp | x-download v1.0',
+        'download_success': '✓ 下载成功！',
+        'download_failed': '✗ 下载失败',
+        'file_name': '文件名',
+        'file_size': '大小',
+        'request_failed': '✗ 请求失败',
+        'enter_url': '请输入视频链接',
+        'no_info': '无法获取视频信息',
+        'duration_unknown': '未知',
+        'uploader': '上传者',
+        'duration': '时长',
+        'hour': '小时',
+        'minute': '分',
+        'second': '秒',
+        'download_complete': '下载完成！',
+        'downloading_progress': '正在下载... {pct}%',
+        'status_running': '运行中',
+        'status_stopped': '已停止',
+    },
+    'en': {
+        'title': 'x-download - Video Downloader',
+        'subtitle': 'Simple and fast video downloader',
+        'placeholder': 'Paste video URL (supports YouTube, TikTok, Bilibili, etc.)',
+        'get_info': 'Get Info',
+        'getting': 'Getting...',
+        'download': 'Start Download',
+        'downloading': 'Downloading...',
+        'select_quality': 'Select Quality:',
+        'best_quality': 'Best Quality (Recommended)',
+        'status': 'Service Status',
+        'running': '✓ Running',
+        'stopped': '✗ Stopped',
+        'connection_failed': '✗ Connection Failed',
+        'current_files': 'Current Files',
+        'max_files': 'Max Files',
+        'help_title': 'Instructions',
+        'help_1': 'Paste video URL and click "Get Info" to view details',
+        'help_2': 'Select quality and click "Start Download"',
+        'help_3': 'Downloaded files are automatically saved to server',
+        'help_4': 'Supports YouTube, TikTok, Bilibili, Twitter and more',
+        'help_5': 'System automatically cleans old files, keeps latest {max} videos',
+        'footer': 'Powered by yt-dlp | x-download v1.0',
+        'download_success': '✓ Download Success!',
+        'download_failed': '✗ Download Failed',
+        'file_name': 'File Name',
+        'file_size': 'Size',
+        'request_failed': '✗ Request Failed',
+        'enter_url': 'Please enter video URL',
+        'no_info': 'Unable to get video info',
+        'duration_unknown': 'Unknown',
+        'uploader': 'Uploader',
+        'duration': 'Duration',
+        'hour': 'h',
+        'minute': 'm',
+        'second': 's',
+        'download_complete': 'Download Complete!',
+        'downloading_progress': 'Downloading... {pct}%',
+        'status_running': 'Running',
+        'status_stopped': 'Stopped',
+    }
+}
+
+
+def get_lang():
+    """获取当前语言"""
+    # 优先 URL 参数，其次环境变量，默认中文
+    lang = request.args.get('lang', LANG)
+    if lang not in I18N:
+        lang = 'zh'
+    return lang
+
+
+def t(key, **kwargs):
+    """翻译文本"""
+    lang = get_lang()
+    text = I18N.get(lang, {}).get(key, key)
+    if kwargs:
+        text = text.format(**kwargs)
+    return text
 
 
 def get_video_info(url: str) -> dict:
@@ -35,15 +140,15 @@ def get_video_info(url: str) -> dict:
         if result.returncode == 0:
             info = json.loads(result.stdout)
             return {
-                'title': info.get('title', '未知标题'),
+                'title': info.get('title', t('no_info')),
                 'duration': info.get('duration', 0),
                 'thumbnail': info.get('thumbnail', ''),
-                'uploader': info.get('uploader', '未知'),
+                'uploader': info.get('uploader', t('uploader')),
                 'success': True
             }
     except Exception as e:
         pass
-    return {'success': False, 'error': '无法获取视频信息'}
+    return {'success': False, 'error': t('no_info')}
 
 
 def download_video(url: str, task_id: str, format_id: str = 'best') -> dict:
@@ -62,7 +167,6 @@ def download_video(url: str, task_id: str, format_id: str = 'best') -> dict:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         
         if result.returncode == 0:
-            # 查找下载的文件
             for f in os.listdir(DOWNLOAD_DIR):
                 if task_id in f:
                     file_path = os.path.join(DOWNLOAD_DIR, f)
@@ -73,15 +177,15 @@ def download_video(url: str, task_id: str, format_id: str = 'best') -> dict:
                         'size': os.path.getsize(file_path)
                     }
         
-        return {'success': False, 'error': result.stderr or '下载失败'}
+        return {'success': False, 'error': result.stderr or t('download_failed')}
     except subprocess.TimeoutExpired:
-        return {'success': False, 'error': '下载超时'}
+        return {'success': False, 'error': t('download_failed')}
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
 
 def cleanup_old_files():
-    """清理旧文件，保留最新的 MAX_FILES 个"""
+    """清理旧文件"""
     try:
         files = sorted(
             [f for f in os.listdir(DOWNLOAD_DIR) if os.path.isfile(os.path.join(DOWNLOAD_DIR, f))],
@@ -99,7 +203,10 @@ def cleanup_old_files():
 @app.route('/')
 def index():
     """主页"""
-    return render_template('index.html')
+    return render_template('index.html', 
+                         lang=get_lang(),
+                         max_files=MAX_FILES,
+                         t=t)
 
 
 @app.route('/api/info', methods=['POST'])
@@ -109,7 +216,7 @@ def api_info():
     url = data.get('url', '').strip()
     
     if not url:
-        return jsonify({'success': False, 'error': '请输入视频链接'})
+        return jsonify({'success': False, 'error': t('enter_url')})
     
     info = get_video_info(url)
     return jsonify(info)
@@ -123,7 +230,7 @@ def api_download():
     format_id = data.get('format', 'best')
     
     if not url:
-        return jsonify({'success': False, 'error': '请输入视频链接'})
+        return jsonify({'success': False, 'error': t('enter_url')})
     
     task_id = str(uuid.uuid4())[:8]
     result = download_video(url, task_id, format_id)
@@ -141,7 +248,7 @@ def api_formats():
     url = data.get('url', '').strip()
     
     if not url:
-        return jsonify({'success': False, 'error': '请输入视频链接', 'formats': []})
+        return jsonify({'success': False, 'error': t('enter_url'), 'formats': []})
     
     try:
         result = subprocess.run(
@@ -152,18 +259,18 @@ def api_formats():
         if result.returncode == 0:
             lines = result.stdout.strip().split('\n')
             formats = []
-            for line in lines[3:]:  # 跳过表头
+            for line in lines[3:]:
                 parts = line.split()
                 if len(parts) >= 2:
                     formats.append({
                         'id': parts[0],
                         'desc': ' '.join(parts[1:])
                     })
-            return jsonify({'success': True, 'formats': formats[:20]})  # 最多返回20个
+            return jsonify({'success': True, 'formats': formats[:20]})
     except Exception as e:
         pass
     
-    return jsonify({'success': False, 'error': '获取格式失败', 'formats': []})
+    return jsonify({'success': False, 'error': t('no_info'), 'formats': []})
 
 
 @app.route('/download/<filename>')
@@ -172,7 +279,7 @@ def serve_file(filename):
     file_path = os.path.join(DOWNLOAD_DIR, filename)
     
     if not os.path.exists(file_path):
-        return jsonify({'error': '文件不存在'}), 404
+        return jsonify({'error': t('no_info')}), 404
     
     @after_this_request
     def remove_file(response):
@@ -197,9 +304,18 @@ def api_status():
     })
 
 
+@app.route('/api/i18n')
+def api_i18n():
+    """获取前端翻译文本"""
+    lang = request.args.get('lang', 'zh')
+    if lang not in I18N:
+        lang = 'zh'
+    return jsonify(I18N[lang])
+
+
 if __name__ == '__main__':
-    print(f"x-download 服务启动中...")
-    print(f"访问地址: http://0.0.0.0:{PORT}")
-    print(f"下载目录: {DOWNLOAD_DIR}")
-    print(f"最大保留文件数: {MAX_FILES}")
+    print(f"x-download 服务启动中... / Starting...")
+    print(f"访问地址 / URL: http://0.0.0.0:{PORT}")
+    print(f"下载目录 / Download dir: {DOWNLOAD_DIR}")
+    print(f"语言 / Language: {LANG}")
     app.run(host='0.0.0.0', port=PORT, debug=False)

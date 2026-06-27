@@ -3,14 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>x-download - 视频下载工具</title>
+    <title>x-download</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
         <header>
             <h1>🎬 x-download</h1>
-            <p class="subtitle">简单快速的视频下载工具</p>
+            <p class="subtitle" id="subtitle">简单快速的视频下载工具</p>
+            <div class="lang-switch">
+                <button onclick="switchLang('zh')" id="langZh" class="lang-btn active">中文</button>
+                <button onclick="switchLang('en')" id="langEn" class="lang-btn">English</button>
+            </div>
         </header>
 
         <main>
@@ -38,9 +42,9 @@
                     </div>
 
                     <div class="format-section">
-                        <label>选择画质：</label>
+                        <label id="selectQuality">选择画质：</label>
                         <select id="formatSelect">
-                            <option value="best">最佳画质（推荐）</option>
+                            <option value="best" id="bestQuality">最佳画质（推荐）</option>
                         </select>
                     </div>
 
@@ -60,68 +64,127 @@
             </div>
 
             <div class="status-section">
-                <h3>服务状态</h3>
+                <h3 id="statusTitle">服务状态</h3>
                 <div class="status-grid">
                     <div class="status-item">
-                        <span class="label">状态</span>
+                        <span class="label" id="statusLabel">状态</span>
                         <span class="value" id="statusValue">检查中...</span>
                     </div>
                     <div class="status-item">
-                        <span class="label">当前文件数</span>
+                        <span class="label" id="currentFilesLabel">当前文件数</span>
                         <span class="value" id="fileCount">-</span>
                     </div>
                     <div class="status-item">
-                        <span class="label">最大保留数</span>
+                        <span class="label" id="maxFilesLabel">最大保留数</span>
                         <span class="value" id="maxFiles">-</span>
                     </div>
                 </div>
             </div>
 
             <div class="help-section">
-                <h3>使用说明</h3>
+                <h3 id="helpTitle">使用说明</h3>
                 <ul>
-                    <li>粘贴视频链接，点击"获取信息"查看视频详情</li>
-                    <li>选择合适的画质，点击"开始下载"</li>
-                    <li>下载完成后会自动保存到服务器</li>
-                    <li>支持 YouTube、抖音、B站、Twitter 等主流平台</li>
-                    <li>系统会自动清理旧文件，保持最新的 {{ max_files }} 个视频</li>
+                    <li id="help1">粘贴视频链接，点击"获取信息"查看视频详情</li>
+                    <li id="help2">选择合适的画质，点击"开始下载"</li>
+                    <li id="help3">下载完成后会自动保存到服务器</li>
+                    <li id="help4">支持 YouTube、抖音、B站、Twitter 等主流平台</li>
+                    <li id="help5">系统会自动清理旧文件，保持最新的 {max_files} 个视频</li>
                 </ul>
             </div>
         </main>
 
         <footer>
-            <p> Powered by yt-dlp | x-download v1.0</p>
+            <p id="footerText"> Powered by yt-dlp | x-download v1.0</p>
         </footer>
     </div>
 
     <script>
-        const API_BASE = window.location.origin;
+        let currentLang = '{{ lang }}';
+        let translations = {};
+
+        // 获取翻译文本
+        async function loadTranslations(lang) {
+            try {
+                const response = await fetch(`/api/i18n?lang=${lang}`);
+                translations = await response.json();
+                updatePageText();
+            } catch (error) {
+                console.error('Failed to load translations:', error);
+            }
+        }
+
+        // 更新页面文本
+        function updatePageText() {
+            const t = translations;
+            if (!t.title) return;
+
+            document.title = t.title;
+            document.getElementById('subtitle').textContent = t.subtitle;
+            document.getElementById('urlInput').placeholder = t.placeholder;
+            document.getElementById('infoBtn').textContent = t.get_info;
+            document.getElementById('selectQuality').textContent = t.select_quality;
+            document.getElementById('bestQuality').textContent = t.best_quality;
+            document.getElementById('downloadBtn').textContent = t.download;
+            document.getElementById('statusTitle').textContent = t.status;
+            document.getElementById('statusLabel').textContent = t.status;
+            document.getElementById('currentFilesLabel').textContent = t.current_files;
+            document.getElementById('maxFilesLabel').textContent = t.max_files;
+            document.getElementById('helpTitle').textContent = t.help_title;
+            document.getElementById('help1').textContent = t.help_1;
+            document.getElementById('help2').textContent = t.help_2;
+            document.getElementById('help3').textContent = t.help_3;
+            document.getElementById('help4').textContent = t.help_4;
+            document.getElementById('help5').textContent = t.help_5.replace('{max}', '{{ max_files }}');
+            document.getElementById('footerText').textContent = t.footer;
+
+            // 更新语言按钮状态
+            document.getElementById('langZh').classList.toggle('active', currentLang === 'zh');
+            document.getElementById('langEn').classList.toggle('active', currentLang === 'en');
+
+            // 更新 HTML lang 属性
+            document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
+        }
+
+        // 切换语言
+        function switchLang(lang) {
+            currentLang = lang;
+            localStorage.setItem('x-download-lang', lang);
+            
+            // 更新 URL 参数
+            const url = new URL(window.location);
+            url.searchParams.set('lang', lang);
+            window.history.pushState({}, '', url);
+            
+            loadTranslations(lang);
+            checkStatus();
+        }
 
         // 格式化时长
         function formatDuration(seconds) {
-            if (!seconds) return '未知';
+            if (!seconds) return translations.duration_unknown || '未知';
             const h = Math.floor(seconds / 3600);
             const m = Math.floor((seconds % 3600) / 60);
             const s = seconds % 60;
-            if (h > 0) return `${h}小时${m}分`;
-            if (m > 0) return `${m}分${s}秒`;
-            return `${s}秒`;
+            const t = translations;
+            if (h > 0) return `${h}${t.hour || '小时'}${m}${t.minute || '分'}`;
+            if (m > 0) return `${m}${t.minute || '分'}${s}${t.second || '秒'}`;
+            return `${s}${t.second || '秒'}`;
         }
 
         // 获取视频信息
         async function getVideoInfo() {
             const url = document.getElementById('urlInput').value.trim();
             if (!url) {
-                alert('请输入视频链接');
+                alert(translations.enter_url || '请输入视频链接');
                 return;
             }
 
             const btn = document.getElementById('infoBtn');
             btn.disabled = true;
-            btn.textContent = '获取中...';
+            btn.textContent = translations.getting || '获取中...';
 
             try {
-                const response = await fetch(`${API_BASE}/api/info`, {
+                const response = await fetch(`${window.location.origin}/api/info`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url })
@@ -131,8 +194,8 @@
 
                 if (data.success) {
                     document.getElementById('videoTitle').textContent = data.title;
-                    document.getElementById('videoUploader').textContent = `上传者: ${data.uploader}`;
-                    document.getElementById('videoDuration').textContent = `时长: ${formatDuration(data.duration)}`;
+                    document.getElementById('videoUploader').textContent = `${translations.uploader || '上传者'}: ${data.uploader}`;
+                    document.getElementById('videoDuration').textContent = `${translations.duration || '时长'}: ${formatDuration(data.duration)}`;
                     
                     if (data.thumbnail) {
                         document.getElementById('thumbnail').src = data.thumbnail;
@@ -140,13 +203,13 @@
                     
                     document.getElementById('videoInfo').style.display = 'block';
                 } else {
-                    alert('获取视频信息失败: ' + data.error);
+                    alert((translations.no_info || '获取视频信息失败') + ': ' + data.error);
                 }
             } catch (error) {
-                alert('请求失败: ' + error.message);
+                alert((translations.request_failed || '请求失败') + ': ' + error.message);
             } finally {
                 btn.disabled = false;
-                btn.textContent = '获取信息';
+                btn.textContent = translations.get_info || '获取信息';
             }
         }
 
@@ -157,24 +220,23 @@
             
             const btn = document.getElementById('downloadBtn');
             btn.disabled = true;
-            btn.textContent = '下载中...';
+            btn.textContent = translations.downloading || '下载中...';
 
             const progressDiv = document.getElementById('progress');
             const progressFill = document.getElementById('progressFill');
             const progressText = document.getElementById('progressText');
             progressDiv.style.display = 'block';
 
-            // 模拟进度
             let progress = 0;
             const interval = setInterval(() => {
                 progress += Math.random() * 15;
                 if (progress > 90) progress = 90;
                 progressFill.style.width = progress + '%';
-                progressText.textContent = `正在下载... ${Math.floor(progress)}%`;
+                progressText.textContent = (translations.downloading_progress || '正在下载...').replace('{pct}', Math.floor(progress));
             }, 500);
 
             try {
-                const response = await fetch(`${API_BASE}/api/download`, {
+                const response = await fetch(`${window.location.origin}/api/download`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url, format: formatId })
@@ -183,66 +245,71 @@
                 const data = await response.json();
                 clearInterval(interval);
                 progressFill.style.width = '100%';
-                progressText.textContent = '下载完成！';
+                progressText.textContent = translations.download_complete || '下载完成！';
 
                 const resultDiv = document.getElementById('result');
                 if (data.success) {
                     resultDiv.innerHTML = `
                         <div class="success-message">
-                            <h4>✓ 下载成功！</h4>
-                            <p>文件名: ${data.file}</p>
-                            <p>大小: ${(data.size / 1024 / 1024).toFixed(2)} MB</p>
+                            <h4>${translations.download_success || '✓ 下载成功！'}</h4>
+                            <p>${translations.file_name || '文件名'}: ${data.file}</p>
+                            <p>${translations.file_size || '大小'}: ${(data.size / 1024 / 1024).toFixed(2)} MB</p>
                         </div>
                     `;
                 } else {
                     resultDiv.innerHTML = `
                         <div class="error-message">
-                            <h4>✗ 下载失败</h4>
+                            <h4>${translations.download_failed || '✗ 下载失败'}</h4>
                             <p>${data.error}</p>
                         </div>
                     `;
                 }
                 resultDiv.style.display = 'block';
 
-                // 刷新状态
                 setTimeout(checkStatus, 2000);
             } catch (error) {
                 clearInterval(interval);
                 document.getElementById('result').innerHTML = `
                     <div class="error-message">
-                        <h4>✗ 请求失败</h4>
+                        <h4>${translations.request_failed || '✗ 请求失败'}</h4>
                         <p>${error.message}</p>
                     </div>
                 `;
                 document.getElementById('result').style.display = 'block';
             } finally {
                 btn.disabled = false;
-                btn.textContent = '开始下载';
+                btn.textContent = translations.download || '开始下载';
             }
         }
 
         // 检查服务状态
         async function checkStatus() {
             try {
-                const response = await fetch(`${API_BASE}/api/status`);
+                const response = await fetch(`${window.location.origin}/api/status`);
                 const data = await response.json();
                 
-                document.getElementById('statusValue').textContent = data.status === 'running' ? '✓ 运行中' : '✗ 已停止';
+                const statusText = data.status === 'running' ? (translations.running || '✓ 运行中') : (translations.stopped || '✗ 已停止');
+                document.getElementById('statusValue').textContent = statusText;
                 document.getElementById('fileCount').textContent = data.files;
                 document.getElementById('maxFiles').textContent = data.max_files;
             } catch (error) {
-                document.getElementById('statusValue').textContent = '✗ 连接失败';
+                document.getElementById('statusValue').textContent = translations.connection_failed || '✗ 连接失败';
             }
         }
 
-        // 页面加载时检查状态
+        // 初始化
         window.onload = function() {
+            // 从 localStorage 或 URL 参数获取语言
+            const savedLang = localStorage.getItem('x-download-lang');
+            const urlLang = new URL(window.location).searchParams.get('lang');
+            currentLang = urlLang || savedLang || '{{ lang }}';
+            
+            loadTranslations(currentLang);
             checkStatus();
-            // 每30秒刷新一次状态
             setInterval(checkStatus, 30000);
         };
 
-        // 回车键触发获取信息
+        // 回车键触发
         document.getElementById('urlInput').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 getVideoInfo();
