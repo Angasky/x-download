@@ -249,11 +249,13 @@
 
                 const resultDiv = document.getElementById('result');
                 if (data.success) {
+                    const downloadUrl = `/download/${data.file}`;
                     resultDiv.innerHTML = `
                         <div class="success-message">
                             <h4>${translations.download_success || '✓ 下载成功！'}</h4>
                             <p>${translations.file_name || '文件名'}: ${data.file}</p>
                             <p>${translations.file_size || '大小'}: ${(data.size / 1024 / 1024).toFixed(2)} MB</p>
+                            <a href="${downloadUrl}" class="download-link-btn" download>⬇️ ${translations.download || '下载文件'}</a>
                         </div>
                     `;
                 } else {

@@ -275,6 +275,23 @@ footer {
     font-size: 0.9em;
 }
 
+.download-link-btn {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    color: white;
+    text-decoration: none;
+    border-radius: 8px;
+    font-weight: 600;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.download-link-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(40, 167, 69, 0.4);
+}
+
 @media (max-width: 600px) {
     .input-group {
         flex-direction: column;
