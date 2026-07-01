@@ -175,12 +175,39 @@ journalctl -u x-download -f
 - 请遵守当地法律法规，仅下载您有权下载的内容 / Comply with local laws, only download content you have rights to
 - API 接口为同步阻塞调用，高并发时会排队 / APIs are synchronous, high concurrency will queue
 
+## 配套后端项目 / Backend Project
+
+本项目配套后端：**[TikTokDownloader (DouK-Downloader)](https://github.com/JoeanAmier/TikTokDownloader)**
+
+- 提供基于 FastAPI 的 WebAPI，支持抖音/TikTok 登录态下载、批量下载
+- 部署路径：`/opt/TikTokDownloader`
+- Python 环境：`/opt/TikTokDownloader/.venv/bin/python`（Python 3.12.13）
+- 启动方式：
+
+```bash
+cd /opt/TikTokDownloader
+PYTHONPATH=/opt/TikTokDownloader/src /opt/TikTokDownloader/.venv/bin/python main.py --webapi
+```
+
+- 项目文档：https://github.com/JoeanAmier/TikTokDownloader/wiki/Documentation
+- 使用前需配置 `settings.json` 中的 `cookie` 和 `cookie_tiktok`
+
+如果你需要更强大的后端能力（如登录态、批量任务、元数据导出），建议搭配 TikTokDownloader 使用。
+
 ## 技术栈 / Tech Stack
 
+### x-download
 - **后端**: Python + Flask / Backend: Python + Flask
 - **下载引擎**: yt-dlp 2026.06.09 / Download engine: yt-dlp
 - **前端**: HTML + CSS + JavaScript / Frontend: HTML + CSS + JavaScript
 - **服务管理**: systemd / Service management: systemd
+
+### TikTokDownloader（配套后端）
+- **后端**: Python + FastAPI + Uvicorn / Backend: Python + FastAPI + Uvicorn
+- **下载引擎**: yt-dlp / Download engine: yt-dlp
+- **HTTP 客户端**: httpx / HTTP client: httpx
+- **解析引擎**: lxml / Parser: lxml
+- **数据校验**: Pydantic / Data validation: Pydantic
 
 ## 许可证 / License
 
