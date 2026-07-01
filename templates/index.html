@@ -329,28 +329,33 @@
                     listDiv.innerHTML = '<p class="empty-hint">暂无文件</p>';
                     return;
                 }
-                listDiv.innerHTML = data.files.map(f => `
+                listDiv.innerHTML = data.files.map(f => {
+                    const enc = encodeURIComponent(f.name);
+                    return `
                     <div class="file-item">
                         <div class="file-info">
-                            <span class="file-name">${f.name}</span>
+                            <span class="file-name">${f.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>
                             <span class="file-meta">${formatFileSize(f.size)} · ${formatTime(f.mtime)}</span>
                         </div>
                         <div class="file-actions">
-                            <a href="/download/${f.name}" class="file-btn download-btn-file" download>⬇️ ${translations.download || '下载'}</a>
-                            <button class="file-btn delete-btn-file" onclick="deleteFile('${f.name}')">🗑️ ${translations.download_failed ? '删除' : '删除'}</button>
+                            <a href="/download/${enc}" class="file-btn download-btn-file" download>⬇️ ${translations.download || '下载'}</a>
+                            <button class="file-btn delete-btn-file" data-name="${enc}" onclick="deleteFile(this)">🗑️ ${translations.download_failed ? '删除' : '删除'}</button>
                         </div>
                     </div>
-                `).join('');
+                `;
+                }).join('');
             } catch (e) {
                 console.error('loadFiles failed', e);
             }
         }
 
         // 删除文件
-        async function deleteFile(filename) {
-            if (!confirm('确定删除 ' + filename + ' ?')) return;
+        async function deleteFile(btn) {
+            const name = btn.getAttribute('data-name');
+            const displayName = decodeURIComponent(name);
+            if (!confirm('确定删除 ' + displayName + ' ?')) return;
             try {
-                const response = await fetch(`/api/files/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+                const response = await fetch(`/api/files/${name}`, { method: 'DELETE' });
                 const data = await response.json();
                 if (data.success) {
                     loadFiles();

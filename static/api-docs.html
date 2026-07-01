@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>x-download API 文档</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px 30px;
+            text-align: center;
+        }
+        header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        header p { opacity: 0.9; font-size: 1.1em; }
+        .base-url {
+            background: #f5f5f5;
+            padding: 15px;
+            text-align: center;
+            font-family: monospace;
+            font-size: 1.1em;
+            color: #667eea;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        main { padding: 30px; }
+        .endpoint {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 4px solid #667eea;
+        }
+        .endpoint-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .method {
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 0.9em;
+            min-width: 60px;
+            text-align: center;
+        }
+        .method.get { background: #d4edda; color: #155724; }
+        .method.post { background: #d1ecf1; color: #0c5460; }
+        .method.delete { background: #f8d7da; color: #721c24; }
+        .path {
+            font-family: monospace;
+            font-size: 1.1em;
+            color: #333;
+            flex: 1;
+        }
+        .description {
+            color: #666;
+            margin-bottom: 15px;
+            line-height: 1.6;
+        }
+        .section-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 8px;
+            margin-top: 15px;
+        }
+        .section-title:first-child { margin-top: 0; }
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 0.9em;
+            line-height: 1.5;
+        }
+        code {
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        .inline-code {
+            background: #e8e8e8;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        .note {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 12px 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+            color: #856404;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .back-link:hover { text-decoration: underline; }
+        footer {
+            background: #f5f5f5;
+            padding: 20px;
+            text-align: center;
+            color: #999;
+            font-size: 0.9em;
+        }
+        .category-title {
+            font-size: 1.4em;
+            color: #667eea;
+            margin: 30px 0 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📚 x-download API 文档</h1>
+            <p>基于 yt-dlp 的网页版视频下载工具 — 完整 API 参考</p>
+        </header>
+        <div class="base-url">
+            Base URL: <span id="baseUrl">http://77.73.14.88:8080</span>
+        </div>
+        <main>
+            <a href="/" class="back-link">← 返回首页</a>
+
+            <div class="category-title">🎬 视频下载核心接口</div>
+
+            <!-- 1. 获取视频信息 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/info</span>
+                </div>
+                <div class="description">获取视频基本信息，包括标题、时长、封面、上传者等。</div>
+                
+                <div class="section-title">请求参数</div>
+                <pre><code>{
+  "url": "https://www.youtube.com/watch?v=xxx"
+}</code></pre>
+
+                <div class="section-title">返回示例</div>
+                <pre><code>{
+  "success": true,
+  "title": "视频标题",
+  "duration": 120,
+  "thumbnail": "https://...",
+  "uploader": "上传者名称"
+}</code></pre>
+
+                <div class="note">提示：如果返回 success: false，说明视频链接无效或平台不支持。</div>
+            </div>
+
+            <!-- 2. 获取可用画质 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/formats</span>
+                </div>
+                <div class="description">获取视频可用的画质和格式列表。</div>
+                
+                <div class="section-title">请求参数</div>
+                <pre><code>{
+  "url": "https://www.youtube.com/watch?v=xxx"
+}</code></pre>
+
+                <div class="section-title">返回示例</div>
+                <pre><code>{
+  "success": true,
+  "formats": [
+    {"id": "best", "desc": "最佳画质（推荐）"},
+    {"id": "137+140", "desc": "1080p+音频"}
+  ]
+}</code></pre>
+            </div>
+
+            <!-- 3. 开始下载 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/download</span>
+                </div>
+                <div class="description">下载视频到服务器（同步阻塞，大文件需等待）。</div>
+                
+                <div class="section-title">请求参数</div>
+                <pre><code>{
+  "url": "https://www.youtube.com/watch?v=xxx",
+  "format": "格式ID（可选，不填则下载最佳画质）"
+}</code></pre>
+
+                <div class="section-title">返回示例</div>
+                <pre><code>{
+  "success": true,
+  "file": "视频标题_abc12345.mp4",
+  "size": 1024000
+}</code></pre>
+
+                <div class="note">
+                    超时 300 秒。文件保存在 <span class="inline-code">/opt/x-download/downloads</span>，超过 MAX_FILES（默认 50）自动清理旧文件。
+                </div>
+            </div>
+
+            <!-- 4. 下载音频 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/audio</span>
+                </div>
+                <div class="description">提取视频音频并转换为 MP3 格式。</div>
+                
+                <div class="section-title">请求参数</div>
+                <pre><code>{
+  "url": "https://www.youtube.com/watch?v=xxx",
+  "format": "bestaudio/best（可选）"
+}</code></pre>
+
+                <div class="section-title">返回示例</div>
+                <pre><code>{
+  "success": true,
+  "file": "视频标题_abc12345.mp3",
+  "size": 1024000
+}</code></pre>
+
+                <div class="note">自动提取最佳音质，转换为 MP3，比特率 320k。</div>
+            </div>
+
+            <div class="category-title">🔍 搜索与发现</div>
+
+            <!-- 5. 搜索视频 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/search</span>
+                </div>
+                <div class="description">基于关键词搜索视频（默认返回前 5 条结果）。</div>
+                
+                <div class="section-title">请求参数</div>
+                <pre><code>{
+  "query": "关键词"
+}</code></pre>
+
+                <div class="section-title">返回示例</div>
+                <pre><code>{
+  "success": true,
+  "videos": [
+    {
+      "id": "dQw4w9WgXcQ",
+      "title": "视频标题",
+      "url": "https://www.youtube.com/watch?v=...",
+      "thumbnail": "https://...",
+      "duration": 212,
+      "uploader": "频道名称"
+    }
+  ]
+}</code></pre>
+
+                <div class="note">基于 yt-dlp 内置搜索，默认搜索 YouTube。可修改代码中的 ytsearch5: 为 ytsearch10: 等调整结果数。</div>
+            </div>
+
+            <!-- 6. 检查链接 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/check</span>
+                </div>
+                <div class="description">检查链接是否支持下载，返回基本信息。</div>
+                
+                <div class="section-title">请求参数</div>
+                <pre><code>{
+  "url": "https://..."
+}</code></pre>
+
+                <div class="section-title">返回示例（支持）</div>
+                <pre><code>{
+  "success": true,
+  "supported": true,
+  "title": "视频标题",
+  "extractor": "youtube",
+  "uploader": "频道名称"
+}</code></pre>
+
+                <div class="section-title">返回示例（不支持）</div>
+                <pre><code>{
+  "success": true,
+  "supported": false,
+  "error": "不支持此链接"
+}</code></pre>
+            </div>
+
+            <!-- 7. 获取支持平台列表 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method get">GET</span>
+                    <span class="path">/api/extractors</span>
+                </div>
+                <div class="description">获取 yt-dlp 支持的所有视频平台列表（共 1747+ 个）。</div>
+                
+                <div class="section-title">返回示例</div>
+                <pre><code>{
+  "success": true,
+  "extractors": ["YouTube", "TikTok", "BiliBili", ...],
+  "categories": {
+    "国际平台": ["YouTube", "TikTok", "Twitter", "Instagram", "Facebook", "Vimeo", "Dailymotion", "Reddit", "Twitch", "Pornhub"],
+    "国内平台": ["Douyin", "BiliBili", "Bilibili", "Weibo", "Xiaohongshu", "Kuaishou"]
+  }
+}</code></pre>
+            </div>
+
+            <div class="category-title">📋 播放列表与字幕</div>
+
+            <!-- 8. 获取播放列表 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/playlist</span>
+                </div>
+                <div class="description">获取播放列表中的所有视频条目。</div>
+                
+                <div class="section-title">请求参数</div>
+                <pre><code>{
+  "url": "https://www.youtube.com/playlist?list=..."
+}</code></pre>
+
+                <div class="section-title">返回示例</div>
+                <pre><code>{
+  "success": true,
+  "entries": [
+    {
+      "id": "xxx",
+      "title": "视频1",
+      "url": "https://www.youtube.com/watch?v=xxx",
+      "duration": 120
+    },
+    {
+      "id": "yyy",
+      "title": "视频2",
+      "url": "https://www.youtube.com/watch?v=yyy",
+      "duration": 180
+    }
+  ]
+}</code></pre>
+            </div>
+
+            <!-- 9. 获取字幕 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/subtitles</span>
+                </div>
+                <div class="description">获取视频可用的字幕/字幕轨道列表。</div>
+                
+                <div class="section-title">请求参数</div>
+                <pre><code>{
+  "url": "https://www.youtube.com/watch?v=xxx"
+}</code></pre>
+
+                <div class="section-title">返回示例</div>
+                <pre><code>{
+  "success": true,
+  "subtitles": [
+    {"lang": "en", "formats": ["vtt", "srt", "json3"]},
+    {"lang": "zh-Hans", "formats": ["vtt", "srt"]},
+    {"lang": "zh-Hant", "formats": ["vtt"]}
+  ]
+}</code></pre>
+
+                <div class="note">注意：此接口仅返回字幕列表，如需下载字幕请使用 yt-dlp 命令行参数 --write-sub。</div>
+            </div>
+
+            <div class="category-title">📁 文件管理</div>
+
+            <!-- 10. 列出文件 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method get">GET</span>
+                    <span class="path">/api/files</span>
+                </div>
+                <div class="description">列出下载目录中的所有文件，按修改时间倒序。</div>
+                
+                <div class="section-title">返回示例</div>
+                <pre><code>{
+  "success": true,
+  "files": [
+    {
+      "name": "视频标题_abc12345.mp4",
+      "size": 1024000,
+      "mtime": 1782900935.9749565
+    }
+  ]
+}</code></pre>
+            </div>
+
+            <!-- 11. 删除文件 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method delete">DELETE</span>
+                    <span class="path">/api/files/{filename}</span>
+                </div>
+                <div class="description">删除指定文件。注意：filename 需要 URL 编码。</div>
+                
+                <div class="section-title">请求示例</div>
+                <pre><code>DELETE /api/files/%E8%A7%86%E9%A2%91%E6%A0%87%E9%A2%98_abc12345.mp4</code></pre>
+
+                <div class="section-title">返回示例</div>
+                <pre><code>{
+  "success": true
+}</code></pre>
+
+                <div class="note">如果文件不存在，返回 404 和 <span class="inline-code">{"success": false, "error": "File not found"}</span></div>
+            </div>
+
+            <!-- 12. 下载文件 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method get">GET</span>
+                    <span class="path">/download/{filename}</span>
+                </div>
+                <div class="description">直接下载文件，浏览器会触发下载对话框。</div>
+                
+                <div class="section-title">请求示例</div>
+                <pre><code>GET /download/%E8%A7%86%E9%A2%91%E6%A0%87%E9%A2%98_abc12345.mp4</code></pre>
+
+                <div class="note">返回文件流，Content-Type 为 application/octet-stream。</div>
+            </div>
+
+            <!-- 13. 服务状态 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method get">GET</span>
+                    <span class="path">/api/status</span>
+                </div>
+                <div class="description">获取服务运行状态和统计信息。</div>
+                
+                <div class="section-title">返回示例</div>
+                <pre><code>{
+  "status": "running",
+  "files": 5,
+  "max_files": 50,
+  "download_dir": "/opt/x-download/downloads"
+}</code></pre>
+            </div>
+
+            <!-- 14. 多语言 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method get">GET</span>
+                    <span class="path">/api/i18n?lang=zh</span>
+                </div>
+                <div class="description">获取前端界面所需的翻译文本。</div>
+                
+                <div class="section-title">参数</div>
+                <pre><code>lang: zh | en （默认 zh）</code></pre>
+            </div>
+
+            <!-- 前端调用示例 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method get">GET</span>
+                    <span class="path">前端调用示例（JavaScript）</span>
+                </div>
+                <div class="description">使用 JavaScript 调用 API 的完整示例：</div>
+                
+                <pre><code>// 1. 获取视频信息
+async function getVideoInfo(url) {
+  const res = await fetch('http://77.73.14.88:8080/api/info', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url})
+  });
+  return await res.json();
+}
+
+// 2. 搜索视频
+async function searchVideos(query) {
+  const res = await fetch('http://77.73.14.88:8080/api/search', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({query})
+  });
+  return await res.json();
+}
+
+// 3. 下载视频
+async function downloadVideo(url, formatId) {
+  const res = await fetch('http://77.73.14.88:8080/api/download', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url, format: formatId})
+  });
+  return await res.json();
+}
+
+// 4. 下载音频
+async function downloadAudio(url) {
+  const res = await fetch('http://77.73.14.88:8080/api/audio', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url})
+  });
+  return await res.json();
+}
+
+// 5. 获取文件列表
+async function getFiles() {
+  const res = await fetch('http://77.73.14.88:8080/api/files');
+  return await res.json();
+}
+
+// 6. 删除文件（filename 需要 encodeURIComponent）
+async function deleteFile(filename) {
+  const res = await fetch(
+    `http://77.73.14.88:8080/api/files/${encodeURIComponent(filename)}`,
+    {method: 'DELETE'}
+  );
+  return await res.json();
+}
+
+// 7. 检查链接
+async function checkUrl(url) {
+  const res = await fetch('http://77.73.14.88:8080/api/check', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url})
+  });
+  return await res.json();
+}
+
+// 8. 获取支持平台
+async function getExtractors() {
+  const res = await fetch('http://77.73.14.88:8080/api/extractors');
+  return await res.json();
+}</code></pre>
+            </div>
+
+            <!-- 注意事项 -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method get">GET</span>
+                    <span class="path">开发注意事项</span>
+                </div>
+                <div class="description">开发新网页时需要注意：</div>
+                <pre><code>1. 跨域问题：如果前端不在同一域名下，需要后端支持 CORS
+2. 超时设置：下载接口超时 300 秒，获取信息超时 30 秒
+3. 文件名编码：涉及文件名的接口需要用 URL 编码
+4. 并发限制：yt-dlp 是同步阻塞调用，高并发时会排队
+5. 磁盘空间：注意 /opt/x-download/downloads 的磁盘使用情况
+6. 平台限制：某些平台需要特殊处理（如抖音/TikTok 需要 Cookie）
+7. 搜索功能：默认搜索 YouTube，可通过修改 ytsearch5: 调整结果数量
+8. 音频下载：自动转换为 MP3 格式，需要 ffmpeg 支持</code></pre>
+            </div>
+        </main>
+        <footer>
+            x-download API 文档 v2.0 | 基于 yt-dlp 2026.06.09 | 部署于 77.73.14.88:8080
+        </footer>
+    </div>
+</body>
+</html>

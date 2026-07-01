@@ -12,6 +12,7 @@ import uuid
 import subprocess
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import unquote
 from flask import Flask, render_template, request, jsonify, send_file, after_this_request
 
 app = Flask(__name__)
@@ -110,6 +111,13 @@ I18N = {
         'status_stopped': 'Stopped',
     }
 }
+
+
+def _safe_filename(name: str) -> str:
+    try:
+        return unquote(unquote(name))
+    except Exception:
+        return name
 
 
 def get_lang():
@@ -283,6 +291,7 @@ def api_formats():
 @app.route('/download/<filename>')
 def serve_file(filename):
     """提供文件下载"""
+    filename = _safe_filename(filename)
     file_path = os.path.join(DOWNLOAD_DIR, filename)
     
     if not os.path.exists(file_path):
@@ -336,6 +345,7 @@ def api_files():
 @app.route('/api/files/<filename>', methods=['DELETE'])
 def api_delete_file(filename):
     """删除单个文件"""
+    filename = _safe_filename(filename)
     file_path = os.path.join(DOWNLOAD_DIR, filename)
     if not os.path.exists(file_path):
         return jsonify({'success': False, 'error': 'File not found'}), 404
@@ -344,6 +354,204 @@ def api_delete_file(filename):
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== 扩展 API ====================
+
+@app.route('/api/search', methods=['POST'])
+def api_search():
+    """搜索视频（基于 yt-dlp 内置搜索）"""
+    data = request.get_json()
+    query = data.get('query', '').strip()
+    if not query:
+        return jsonify({'success': False, 'error': '请输入搜索关键词'})
+    
+    try:
+        result = subprocess.run(
+            ['yt-dlp', '--dump-json', '--no-download', '--flat-playlist', f'ytsearch5:{query}'],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            videos = []
+            for line in result.stdout.strip().split('\n'):
+                if line:
+                    info = json.loads(line)
+                    videos.append({
+                        'id': info.get('id', ''),
+                        'title': info.get('title', ''),
+                        'url': info.get('webpage_url', '') or f"https://www.youtube.com/watch?v={info.get('id', '')}",
+                        'thumbnail': info.get('thumbnail', ''),
+                        'duration': info.get('duration', 0),
+                        'uploader': info.get('uploader', ''),
+                    })
+            return jsonify({'success': True, 'videos': videos})
+    except Exception as e:
+        pass
+    return jsonify({'success': False, 'error': '搜索失败'})
+
+
+@app.route('/api/playlist', methods=['POST'])
+def api_playlist():
+    """获取播放列表信息"""
+    data = request.get_json()
+    url = data.get('url', '').strip()
+    if not url:
+        return jsonify({'success': False, 'error': '请输入播放列表链接'})
+    
+    try:
+        result = subprocess.run(
+            ['yt-dlp', '--dump-json', '--no-download', '--flat-playlist', url],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            entries = []
+            for line in result.stdout.strip().split('\n'):
+                if line:
+                    info = json.loads(line)
+                    entries.append({
+                        'id': info.get('id', ''),
+                        'title': info.get('title', ''),
+                        'url': info.get('url', '') or f"https://www.youtube.com/watch?v={info.get('id', '')}",
+                        'duration': info.get('duration', 0),
+                    })
+            return jsonify({'success': True, 'entries': entries})
+    except Exception as e:
+        pass
+    return jsonify({'success': False, 'error': '获取播放列表失败'})
+
+
+@app.route('/api/subtitles', methods=['POST'])
+def api_subtitles():
+    """获取视频可用字幕"""
+    data = request.get_json()
+    url = data.get('url', '').strip()
+    if not url:
+        return jsonify({'success': False, 'error': '请输入视频链接'})
+    
+    try:
+        result = subprocess.run(
+            ['yt-dlp', '--list-subs', url],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            subs = []
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith('Language') and not line.startswith('---'):
+                    parts = line.split()
+                    if parts:
+                        subs.append({
+                            'lang': parts[0],
+                            'formats': parts[1:] if len(parts) > 1 else ['vtt']
+                        })
+            return jsonify({'success': True, 'subtitles': subs})
+    except Exception as e:
+        pass
+    return jsonify({'success': False, 'error': '获取字幕失败'})
+
+
+@app.route('/api/audio', methods=['POST'])
+def api_audio():
+    """下载音频（提取为 mp3）"""
+    data = request.get_json()
+    url = data.get('url', '').strip()
+    format_id = data.get('format', 'bestaudio/best')
+    
+    if not url:
+        return jsonify({'success': False, 'error': '请输入视频链接'})
+    
+    task_id = str(uuid.uuid4())[:8]
+    output_template = os.path.join(DOWNLOAD_DIR, f'%(title)s_{task_id}.%(ext)s')
+    
+    try:
+        cmd = [
+            'yt-dlp', '-o', output_template, '--no-playlist',
+            '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+            url
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        if result.returncode == 0:
+            for f in os.listdir(DOWNLOAD_DIR):
+                if task_id in f:
+                    file_path = os.path.join(DOWNLOAD_DIR, f)
+                    return jsonify({'success': True, 'file': f, 'size': os.path.getsize(file_path)})
+        return jsonify({'success': False, 'error': result.stderr or '下载音频失败'})
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'error': '下载超时'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/thumbnail', methods=['POST'])
+def api_thumbnail():
+    """获取视频缩略图 URL"""
+    data = request.get_json()
+    url = data.get('url', '').strip()
+    if not url:
+        return jsonify({'success': False, 'error': '请输入视频链接'})
+    
+    try:
+        result = subprocess.run(
+            ['yt-dlp', '--dump-json', '--no-download', url],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            info = json.loads(result.stdout)
+            thumbnail = info.get('thumbnail', '')
+            return jsonify({'success': True, 'thumbnail': thumbnail, 'title': info.get('title', '')})
+    except Exception as e:
+        pass
+    return jsonify({'success': False, 'error': '获取缩略图失败'})
+
+
+@app.route('/api/extractors', methods=['GET'])
+def api_extractors():
+    """获取 yt-dlp 支持的所有网站列表"""
+    try:
+        result = subprocess.run(
+            ['yt-dlp', '--list-extractors'],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            extractors = [line.strip() for line in result.stdout.strip().split('\n') if line.strip()]
+            categories = {
+                '国际平台': ['YouTube', 'TikTok', 'Twitter', 'Instagram', 'Facebook', 'Vimeo', 'Dailymotion', 'Reddit', 'Twitch', 'Pornhub'],
+                '国内平台': ['Douyin', 'BiliBili', 'Bilibili', 'Weibo', 'Xiaohongshu', 'Kuaishou'],
+            }
+            return jsonify({'success': True, 'extractors': extractors, 'categories': categories})
+    except Exception as e:
+        pass
+    return jsonify({'success': False, 'error': '获取支持列表失败'})
+
+
+@app.route('/api/check', methods=['POST'])
+def api_check():
+    """检查链接是否支持下载"""
+    data = request.get_json()
+    url = data.get('url', '').strip()
+    if not url:
+        return jsonify({'success': False, 'error': '请输入链接'})
+    
+    try:
+        result = subprocess.run(
+            ['yt-dlp', '--dump-json', '--no-download', '--playlist-items', '1', url],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            info = json.loads(result.stdout)
+            return jsonify({
+                'success': True, 
+                'supported': True,
+                'title': info.get('title', ''),
+                'extractor': info.get('extractor', ''),
+                'uploader': info.get('uploader', '')
+            })
+        else:
+            return jsonify({'success': True, 'supported': False, 'error': result.stderr or '不支持此链接'})
+    except Exception as e:
+        return jsonify({'success': True, 'supported': False, 'error': str(e)})
 
 
 if __name__ == '__main__':
