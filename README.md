@@ -11,6 +11,8 @@
 - 📱 响应式设计，支持手机访问 / Responsive design
 - 🔄 实时显示下载进度 / Real-time download progress
 - 🌐 支持中英文界面 / Bilingual UI (Chinese/English)
+- 🔍 视频搜索、播放列表、字幕、音频提取 / Search, playlist, subtitles, audio extraction
+- 📚 完整的 REST API / Complete REST API
 
 ## 快速安装 / Quick Install
 
@@ -65,6 +67,57 @@ Nginx反向代理 / Nginx Reverse Proxy: 否
 4. 选择画质，点击"开始下载" / Select quality and click "Start Download"
 5. 下载完成后自动保存到服务器 / Files auto-saved to server after download
 
+## API 文档 / API Documentation
+
+访问 `http://服务器IP:8080/static/api-docs.html` 查看完整 API 文档。
+
+### 核心接口 / Core APIs
+
+| 接口 | 方法 | 功能 |
+|------|------|------|
+| `/api/info` | POST | 获取视频信息 |
+| `/api/formats` | POST | 获取可用画质 |
+| `/api/download` | POST | 下载视频 |
+| `/api/audio` | POST | 提取音频为 MP3 |
+| `/api/files` | GET | 列出已下载文件 |
+| `/api/files/{name}` | DELETE | 删除文件 |
+| `/download/{name}` | GET | 下载文件 |
+
+### 扩展接口 / Extended APIs
+
+| 接口 | 方法 | 功能 |
+|------|------|------|
+| `/api/search` | POST | 关键词搜索视频 |
+| `/api/playlist` | POST | 获取播放列表 |
+| `/api/subtitles` | POST | 获取字幕列表 |
+| `/api/thumbnail` | POST | 获取缩略图 URL |
+| `/api/extractors` | GET | 获取支持平台列表 |
+| `/api/check` | POST | 检查链接是否支持 |
+| `/api/status` | GET | 服务状态 |
+| `/api/i18n` | GET | 多语言文本 |
+
+### API 调用示例 / API Example
+
+```bash
+# 获取视频信息
+curl -X POST http://服务器IP:8080/api/info \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.youtube.com/watch?v=xxx"}'
+
+# 下载视频
+curl -X POST http://服务器IP:8080/api/download \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.youtube.com/watch?v=xxx"}'
+
+# 搜索视频
+curl -X POST http://服务器IP:8080/api/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "关键词"}'
+
+# 获取支持平台
+curl http://服务器IP:8080/api/extractors
+```
+
 ## 支持平台 / Supported Platforms
 
 - YouTube
@@ -73,6 +126,14 @@ Nginx反向代理 / Nginx Reverse Proxy: 否
 - Twitter / X
 - Instagram
 - TikTok
+- Facebook
+- Vimeo
+- Dailymotion
+- Reddit
+- Twitch
+- 微博 / Weibo
+- 小红书 / Xiaohongshu
+- 快手 / Kuaishou
 - 更多平台（yt-dlp 支持的所有平台）/ More (all yt-dlp supported platforms)
 
 ## 服务管理 / Service Management
@@ -112,11 +173,12 @@ journalctl -u x-download -f
 - 建议使用 systemd 管理服务，实现开机自启 / Use systemd for auto-start on boot
 - 如遇下载失败，请检查视频链接是否有效 / If download fails, check if URL is valid
 - 请遵守当地法律法规，仅下载您有权下载的内容 / Comply with local laws, only download content you have rights to
+- API 接口为同步阻塞调用，高并发时会排队 / APIs are synchronous, high concurrency will queue
 
 ## 技术栈 / Tech Stack
 
 - **后端**: Python + Flask / Backend: Python + Flask
-- **下载引擎**: yt-dlp / Download engine: yt-dlp
+- **下载引擎**: yt-dlp 2026.06.09 / Download engine: yt-dlp
 - **前端**: HTML + CSS + JavaScript / Frontend: HTML + CSS + JavaScript
 - **服务管理**: systemd / Service management: systemd
 
