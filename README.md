@@ -175,24 +175,16 @@ journalctl -u x-download -f
 - 请遵守当地法律法规，仅下载您有权下载的内容 / Comply with local laws, only download content you have rights to
 - API 接口为同步阻塞调用，高并发时会排队 / APIs are synchronous, high concurrency will queue
 
-## 配套后端项目 / Backend Project
+## 后端下载引擎 / Backend Download Engine
 
-本项目配套后端：**[TikTokDownloader (DouK-Downloader)](https://github.com/JoeanAmier/TikTokDownloader)**
+本项目基于 **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** 构建，它是 youtube-dl 的增强分支，支持 1747+ 个视频平台。
 
-- 提供基于 FastAPI 的 WebAPI，支持抖音/TikTok 登录态下载、批量下载
-- 部署路径：`/opt/TikTokDownloader`
-- Python 环境：`/opt/TikTokDownloader/.venv/bin/python`（Python 3.12.13）
-- 启动方式：
+- 项目地址：https://github.com/yt-dlp/yt-dlp
+- 当前版本：2026.06.09
+- 安装路径：`/usr/local/bin/yt-dlp`
+- 支持平台：YouTube、TikTok、抖音、B站、Twitter、Instagram、Facebook、Vimeo、Reddit 等主流平台
 
-```bash
-cd /opt/TikTokDownloader
-PYTHONPATH=/opt/TikTokDownloader/src /opt/TikTokDownloader/.venv/bin/python main.py --webapi
-```
-
-- 项目文档：https://github.com/JoeanAmier/TikTokDownloader/wiki/Documentation
-- 使用前需配置 `settings.json` 中的 `cookie` 和 `cookie_tiktok`
-
-如果你需要更强大的后端能力（如登录态、批量任务、元数据导出），建议搭配 TikTokDownloader 使用。
+yt-dlp 负责实际的视频解析和下载，x-download 通过调用其命令行接口提供 REST API 和网页界面。
 
 ## 技术栈 / Tech Stack
 
