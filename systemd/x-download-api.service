@@ -1,0 +1,22 @@
+# 静态参考模板（deploy.sh 会自动生成并启用一份）。
+[Unit]
+Description=x-download 视频解析后端 (compat_sg)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/douyin-api
+# KR_API_BASE 为你的抖音解析上游（提供 /douyin/share + /douyin/detail），
+# 由 deploy.sh 注入；也可直接写死在此处 Environment= 行。
+Environment=KR_API_BASE=__KR_API_BASE__
+ExecStart=/bin/bash -c 'cd /opt/douyin-api && KR_API_BASE=__KR_API_BASE__ venv/bin/python3 start.py'
+Restart=always
+RestartSec=3
+TimeoutStartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
