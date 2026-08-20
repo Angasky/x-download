@@ -64,7 +64,3 @@ sudo ./deploy.sh          # 交互填写域名 / 根目录 / 端口 / KR_API_BAS
 - 原生产环境硬编码的域名（`sg.mxvv.cn`、`kr.mxvv.cn:5555`）、绝对路径（`/www/wwwroot/...`）均已剔除，改为部署时通过 `.env` / 环境变量注入。
 - `compat_sg.py` 默认 `KR_API_BASE` 为空，未配置时返回明确错误，不会泄露任何内部地址。
 - `.env` 已在 `.gitignore`，请勿提交。
-
-## 目录原本包含但本仓库已排除的模块
-
-文件分享（`wj.html`/`share_server.py`）、图片边框合成（`frame.html`/`unzip.php`）、MG Chat（`mg.html`）、直播监控（`monitor/`）、视频代理下载（`dl_service.py`）、个人媒体与上传目录。如需要可单独建仓库。
