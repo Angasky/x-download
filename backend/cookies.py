@@ -76,6 +76,11 @@ def _is_x_cookie_domain(domain: str) -> bool:
     return host == "x.com" or host.endswith(".x.com") or host == "twitter.com" or host.endswith(".twitter.com")
 
 
+def _is_youtube_cookie_domain(domain: str) -> bool:
+    host = domain.removeprefix("#HttpOnly_").lstrip(".").lower()
+    return host == "youtube.com" or host.endswith(".youtube.com")
+
+
 def save_x_cookies(value: str, path: Path = YTDLP_COOKIES) -> int:
     """Merge an X browser JSON/header export into a Netscape yt-dlp cookie jar."""
     entries = _browser_cookie_entries(value)
@@ -112,6 +117,53 @@ def save_x_cookies(value: str, path: Path = YTDLP_COOKIES) -> int:
         for line in path.read_text(encoding="utf-8").splitlines():
             fields = line.split("\t")
             if len(fields) >= 7 and _is_x_cookie_domain(fields[0]):
+                continue
+            if line.strip() not in {"# Netscape HTTP Cookie File", "# HTTP Cookie File"}:
+                preserved.append(line)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = "# Netscape HTTP Cookie File\n"
+    if preserved:
+        text += "\n".join(preserved).strip("\n") + "\n"
+    text += "\n".join(output) + "\n"
+    path.write_text(text, encoding="utf-8", newline="\n")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+    return len(output)
+
+
+def save_youtube_cookies(value: str, path: Path = YTDLP_COOKIES) -> int:
+    """Merge a Cookie-Editor YouTube JSON/header export into a Netscape yt-dlp cookie jar."""
+    entries = _browser_cookie_entries(value, default_domain=".youtube.com")
+    output: list[str] = []
+    for item in entries:
+        domain = str(item.get("domain") or ".youtube.com").strip()
+        name = str(item.get("name") or "").strip()
+        cookie_value = str(item.get("value") or "")
+        if not _is_youtube_cookie_domain(domain):
+            continue
+        if not name or any(char in name for char in "=;\t\r\n"):
+            continue
+        if any(char in cookie_value for char in "\t\r\n"):
+            continue
+        host_only = bool(item.get("hostOnly", False))
+        domain = domain.lstrip(".") if host_only else f".{domain.lstrip('.')}"
+        include_subdomains = "FALSE" if host_only else "TRUE"
+        secure = "TRUE" if bool(item.get("secure", True)) else "FALSE"
+        try:
+            expires = max(0, int(float(item.get("expirationDate") or 0)))
+        except (TypeError, ValueError):
+            expires = 0
+        netscape_domain = f"#HttpOnly_{domain}" if bool(item.get("httpOnly")) else domain
+        output.append("\t".join((netscape_domain, include_subdomains, str(item.get("path") or "/"), secure, str(expires), name, cookie_value)))
+    if not output:
+        raise ValueError("没有找到有效的 youtube.com Cookie")
+    preserved: list[str] = []
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            fields = line.split("\t")
+            if len(fields) >= 7 and _is_youtube_cookie_domain(fields[0]):
                 continue
             if line.strip() not in {"# Netscape HTTP Cookie File", "# HTTP Cookie File"}:
                 preserved.append(line)

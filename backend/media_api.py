@@ -8,6 +8,7 @@ import json
 import mimetypes
 import re
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -679,40 +680,41 @@ def _bilibili_extract(url: str) -> dict:
         raise RuntimeError("哔哩哔哩作品缺少 CID")
     play = api(
         "/x/player/playurl",
-        {**identity, "cid": cid, "qn": 127, "fnval": 0, "fourk": 1, "platform": "html5"},
+        {**identity, "cid": cid, "qn": 127, "fnval": 4048, "fourk": 1},
     )
-    qualities = play.get("accept_quality") or [play.get("quality")]
-    descriptions = play.get("accept_description") or []
-    quality_names = {quality: descriptions[index] for index, quality in enumerate(qualities) if index < len(descriptions)}
-    heights = {127: 2160, 126: 2160, 125: 1080, 120: 2160, 116: 1080, 112: 1080, 80: 1080, 74: 720, 64: 720, 32: 480, 16: 360, 6: 240}
+    dash = play.get("dash") or {}
+    audio_tracks = [item for item in dash.get("audio") or [] if isinstance(item, dict) and _pick_url(item.get("baseUrl") or item.get("base_url"))]
+    audio_track = max(audio_tracks, key=lambda item: item.get("bandwidth") or 0, default={})
+    audio_url = _pick_url(audio_track.get("baseUrl") or audio_track.get("base_url"))
     formats: list[dict[str, Any]] = []
-    seen_qualities: set[int] = set()
-    for requested_quality in qualities:
-        if not requested_quality or requested_quality in seen_qualities:
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for track in dash.get("video") or []:
+        if isinstance(track, dict) and _pick_url(track.get("baseUrl") or track.get("base_url")):
+            grouped.setdefault(int(track.get("id") or track.get("height") or 0), []).append(track)
+    for quality_id, tracks in grouped.items():
+        media = max(tracks, key=lambda item: (1 if str(item.get("codecs") or "").lower().startswith("avc") else 0, item.get("bandwidth") or 0))
+        video_url = _pick_url(media.get("baseUrl") or media.get("base_url"))
+        if not video_url or not audio_url:
             continue
-        rendition = api(
-            "/x/player/playurl",
-            {**identity, "cid": cid, "qn": requested_quality, "fnval": 0, "fourk": 1, "platform": "html5"},
-        )
-        actual_quality = int(rendition.get("quality") or requested_quality)
-        if actual_quality in seen_qualities:
-            continue
-        media = next((item for item in rendition.get("durl") or [] if isinstance(item, dict) and item.get("url")), None)
-        if not media:
-            continue
-        seen_qualities.add(actual_quality)
+        raw_fps = str(media.get("frameRate") or media.get("frame_rate") or "")
+        try:
+            numerator, separator, denominator = raw_fps.partition("/")
+            fps = float(numerator) / float(denominator) if separator else float(numerator)
+        except (TypeError, ValueError, ZeroDivisionError):
+            fps = None
         formats.append(
             {
-                "url": media["url"],
-                "format_id": f"bili-{actual_quality}",
-                "quality": quality_names.get(actual_quality) or f"清晰度 {actual_quality}",
+                "url": video_url,
+                "audio_url": audio_url,
+                "format_id": f"bili-dash-{quality_id}",
+                "quality": f"无水印 DASH {media.get('height') or quality_id}P",
                 "ext": "mp4",
-                "width": None,
-                "height": heights.get(actual_quality),
-                "fps": 60 if actual_quality in {74, 116} else 30,
-                "vcodec": "h264",
-                "acodec": "aac",
-                "filesize": media.get("size"),
+                "width": media.get("width"),
+                "height": media.get("height"),
+                "fps": fps,
+                "vcodec": media.get("codecs") or "h264",
+                "acodec": "none",
+                "tbr": (media.get("bandwidth") or 0) / 1000,
                 "http_headers": headers,
             }
         )
@@ -1398,6 +1400,79 @@ def _download_ytdlp_file(
     return max(files, key=lambda path: path.stat().st_size)
 
 
+def _download_bilibili_dash_file(
+    source: str,
+    format_id: str,
+    directory: Path,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> Path:
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("哔哩哔哩无水印版本需要合并音频，请先安装 ffmpeg")
+    detail = _bilibili_extract(source)
+    selected = next((item for item in detail.get("formats") or [] if item.get("format_id") == format_id), None)
+    if not selected or not selected.get("url") or not selected.get("audio_url"):
+        raise RuntimeError("所选哔哩哔哩清晰度已经失效，请重新解析")
+    headers = selected.get("http_headers") or {}
+
+    def download_track(url: str, target: Path, phase: str, start_percent: float, span: float) -> None:
+        request = urllib.request.Request(url, headers=headers)
+        started = time.time()
+        downloaded = 0
+        with urllib.request.urlopen(request, timeout=60) as response, target.open("wb") as output:
+            total = int(response.headers.get("Content-Length") or 0)
+            while True:
+                chunk = response.read(256 * 1024)
+                if not chunk:
+                    break
+                output.write(chunk)
+                downloaded += len(chunk)
+                if progress_callback:
+                    elapsed = max(time.time() - started, 0.001)
+                    speed = downloaded / elapsed
+                    ratio = min(downloaded / total, 1.0) if total else 0.0
+                    progress_callback(
+                        {
+                            "status": "downloading",
+                            "phase": phase,
+                            "percent": round(start_percent + ratio * span, 1),
+                            "downloaded_bytes": downloaded,
+                            "total_bytes": total,
+                            "speed": speed,
+                            "eta": (total - downloaded) / speed if total and speed else None,
+                        }
+                    )
+
+    video_path = directory / "video.m4s"
+    audio_path = directory / "audio.m4s"
+    download_track(selected["url"], video_path, "正在下载无水印视频轨", 2, 68)
+    download_track(selected["audio_url"], audio_path, "正在下载音频轨", 70, 20)
+    if progress_callback:
+        progress_callback({"status": "merging", "phase": "正在合并音频与视频", "percent": 94, "speed": None, "eta": None})
+    safe_title = re.sub(r"[\\/:*?\"<>|]+", "-", detail.get("title") or "bilibili-video").strip(" .")[:120]
+    output = directory / f"{safe_title or 'bilibili-video'}.mp4"
+    completed = subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(video_path), "-i", str(audio_path), "-c", "copy", "-movflags", "+faststart", str(output)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    if completed.returncode != 0 or not output.exists():
+        raise RuntimeError(f"ffmpeg 合并失败：{completed.stderr.strip()[-500:]}")
+    return output
+
+
+def _download_selected_file(
+    source: str,
+    format_id: str,
+    merge_audio: bool,
+    directory: Path,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> Path:
+    if _is_bilibili_source(source) and format_id.startswith("bili-dash-"):
+        return _download_bilibili_dash_file(source, format_id, directory, progress_callback)
+    return _download_ytdlp_file(source, format_id, merge_audio, directory, progress_callback)
+
+
 async def _prepare_ytdlp_download(
     source: str,
     format_id: str,
@@ -1408,7 +1483,7 @@ async def _prepare_ytdlp_download(
         loop = asyncio.get_running_loop()
         output = await loop.run_in_executor(
             _executor,
-            _download_ytdlp_file,
+            _download_selected_file,
             source,
             format_id,
             merge_audio,
@@ -1496,7 +1571,7 @@ def _run_download_job(job_id: str) -> None:
         percent=1,
     )
     try:
-        output = _download_ytdlp_file(
+        output = _download_selected_file(
             source,
             format_id,
             merge_audio,

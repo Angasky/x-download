@@ -284,7 +284,7 @@ def windows_menu(args: argparse.Namespace) -> bool:
 
 
 def prompt_cookies(reconfigure: bool) -> None:
-    from backend.cookies import load_cookies, save_cookies, save_x_cookies
+    from backend.cookies import load_cookies, save_cookies, save_x_cookies, save_youtube_cookies
 
     def prompt_pasted_value(label: str) -> str:
         first_line = input(label).strip()
@@ -314,6 +314,7 @@ def prompt_cookies(reconfigure: bool) -> None:
     print("抖音：打开 https://www.douyin.com 并登录 -> F12 -> Network")
     print("     点任意 douyin.com 请求 -> 复制 Request Headers 的 Cookie")
     print("TikTok：同样从 https://www.tiktok.com 复制 Cookie（可回车跳过）")
+    print("YouTube：可直接粘贴 Cookie-Editor 导出的完整 Cookie JSON")
     print("X/Twitter：可直接粘贴浏览器扩展导出的完整 Cookie JSON，用于受限视频")
     print("yt-dlp：Netscape cookies.txt 路径，可选；也可放到 config/ytdlp_cookies.txt")
     print()
@@ -324,10 +325,17 @@ def prompt_cookies(reconfigure: bool) -> None:
         x_cookie_export = prompt_pasted_value(
             "X/Twitter Cookie JSON / 单行 Cookie（自动合并到 yt-dlp Cookie 文件；回车保留）:\n"
         )
+        try:
+            youtube_cookie_export = prompt_pasted_value(
+                "YouTube Cookie JSON / Netscape Cookie（自动合并；回车保留）:\n"
+            )
+        except (EOFError, StopIteration):
+            youtube_cookie_export = ""
     except EOFError:
         douyin = current.get("douyin_cookie", "")
         tiktok = current.get("tiktok_cookie", "")
         ytdlp = current.get("ytdlp_cookies_file", "")
+        youtube_cookie_export = ""
         x_cookie_export = ""
 
     save_cookies({
@@ -341,10 +349,22 @@ def prompt_cookies(reconfigure: bool) -> None:
         print("[ok] 抖音 Cookie 已保存")
     if tiktok:
         print("[ok] TikTok Cookie 已保存")
+    target = Path(ytdlp).expanduser() if ytdlp else YTDLP_COOKIES
+    if not target.is_absolute():
+        target = ROOT / target
+    if youtube_cookie_export:
+        try:
+            first_line = youtube_cookie_export.lstrip("\ufeff\r\n").splitlines()[0].strip()
+            if first_line in {"# Netscape HTTP Cookie File", "# HTTP Cookie File"}:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(youtube_cookie_export.lstrip("\ufeff"), encoding="utf-8", newline="\n")
+                print("[ok] YouTube Netscape Cookie 已保存")
+            else:
+                count = save_youtube_cookies(youtube_cookie_export, target)
+                print(f"[ok] YouTube Cookie 已保存（{count} 项）")
+        except ValueError as exc:
+            print(f"[warning] YouTube Cookie 未保存：{exc}")
     if x_cookie_export:
-        target = Path(ytdlp).expanduser() if ytdlp else YTDLP_COOKIES
-        if not target.is_absolute():
-            target = ROOT / target
         try:
             count = save_x_cookies(x_cookie_export, target)
             print(f"[ok] X/Twitter Cookie 已保存（{count} 项），可解析需要登录的视频")
