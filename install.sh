@@ -221,14 +221,14 @@ run_bootstrap() {
   if [[ "$HAS_TTY" -eq 1 ]]; then
     "$python_cmd" scripts/bootstrap.py "$@" <&3
   else
-    "$python_cmd" scripts/bootstrap.py "$@"
+    "$python_cmd" scripts/bootstrap.py "$@" </dev/null
   fi
 }
 
 install_public_service() {
   command_exists systemctl || fail "当前系统不支持 systemd，无法安装后台常驻服务。"
-  [[ "$INSTALL_DIR" != *$'\n'* && "$INSTALL_DIR" != *'"'* ]] \
-    || fail "公网服务安装目录不能包含换行符或双引号。"
+  [[ "$INSTALL_DIR" != *[[:space:]]* && "$INSTALL_DIR" != *'"'* ]] \
+    || fail "公网服务安装目录不能包含空白字符或双引号。"
 
   local service_file
   service_file="$(mktemp)"
@@ -241,11 +241,11 @@ install_public_service() {
     '[Service]' \
     'Type=simple' \
     "User=$(id -un)" \
-    "WorkingDirectory=\"$INSTALL_DIR\"" \
+    "WorkingDirectory=$INSTALL_DIR" \
     "Environment=\"PYTHONPATH=$INSTALL_DIR\"" \
     'Environment="XDOWNLOAD_HOST=0.0.0.0"' \
     'Environment="XDOWNLOAD_PORT=18111"' \
-    "ExecStart=\"$INSTALL_DIR/.venv/bin/python\" -m uvicorn backend.server:app --host 0.0.0.0 --port 18111 --no-use-colors" \
+    "ExecStart=$INSTALL_DIR/.venv/bin/python -m uvicorn backend.server:app --host 0.0.0.0 --port 18111 --no-use-colors" \
     'Restart=on-failure' \
     'RestartSec=3' \
     '' \
@@ -286,4 +286,4 @@ START_ARGS+=("--host" "127.0.0.1")
 if [[ "$HAS_TTY" -eq 1 ]]; then
   exec "$python_cmd" scripts/bootstrap.py "${START_ARGS[@]}" <&3
 fi
-exec "$python_cmd" scripts/bootstrap.py "${START_ARGS[@]}"
+exec "$python_cmd" scripts/bootstrap.py "${START_ARGS[@]}" </dev/null
