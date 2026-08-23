@@ -83,6 +83,10 @@ def _extract_tiktok_id(url: str) -> str:
 
 _DOUYIN_DOMAINS = re.compile(r"(douyin\.com|iesdouyin\.com|v\.douyin\.com)", re.IGNORECASE)
 _TIKTOK_DOMAINS = re.compile(r"(tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com)", re.IGNORECASE)
+_KUAISHOU_DOMAINS = re.compile(
+    r"(kuaishou\.com|gifshow\.com|kwai\.com)",
+    re.IGNORECASE,
+)
 _YOUTUBE_DOMAINS = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _YOUTUBE_COOKIE_HELP = (
@@ -97,6 +101,10 @@ def _is_douyin(url: str) -> bool:
 
 def _is_tiktok(url: str) -> bool:
     return bool(_TIKTOK_DOMAINS.search(url))
+
+
+def _is_kuaishou(url: str) -> bool:
+    return bool(_KUAISHOU_DOMAINS.search(url))
 
 
 def _friendly_error(url: str, error: Exception | str) -> str:
@@ -305,6 +313,174 @@ def _tikwm_extract(url: str) -> dict:
     }
 
 
+_KUAISHOU_MOBILE_UA = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
+)
+
+
+def _kuaishou_photo_state(value: Any) -> dict:
+    if isinstance(value, dict):
+        photo = value.get("photo")
+        if isinstance(photo, dict) and photo:
+            return photo
+        for child in value.values():
+            if result := _kuaishou_photo_state(child):
+                return result
+    elif isinstance(value, list):
+        for child in value:
+            if result := _kuaishou_photo_state(child):
+                return result
+    return {}
+
+
+def _kuaishou_extract(url: str) -> dict:
+    source = _extract_url(url)
+    photo_id_match = re.search(
+        r"/(?:short-video|fw/photo)/([0-9A-Za-z_-]+)",
+        urllib.parse.urlparse(source).path,
+        re.IGNORECASE,
+    )
+    request_url = (
+        f"https://www.kuaishou.com/short-video/{photo_id_match.group(1)}"
+        if photo_id_match
+        else source
+    )
+    request = urllib.request.Request(
+        request_url,
+        headers={
+            "User-Agent": _KUAISHOU_MOBILE_UA,
+            "Accept-Language": "zh-CN,zh;q=0.9",
+            "Referer": "https://www.kuaishou.com/",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        page = response.read().decode(response.headers.get_content_charset() or "utf-8", "replace")
+        resolved_url = response.geturl()
+
+    state_match = re.search(
+        r"window\.INIT_STATE\s*=\s*(\{.*?\})\s*;?\s*</script>",
+        page,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if not state_match:
+        raise RuntimeError("快手页面未返回作品数据，请确认链接可访问后重试")
+    try:
+        state = json.loads(state_match.group(1))
+    except json.JSONDecodeError as error:
+        raise RuntimeError("快手作品数据格式发生变化，请稍后重试") from error
+    photo = _kuaishou_photo_state(state)
+    if not photo:
+        raise RuntimeError("未在快手页面中找到作品信息，作品可能已删除或不可见")
+
+    request_headers = {
+        "Referer": "https://www.kuaishou.com/",
+        "User-Agent": _KUAISHOU_MOBILE_UA,
+    }
+    formats: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    adaptation_sets = (photo.get("manifest") or {}).get("adaptationSet") or []
+    for adaptation in adaptation_sets:
+        if not isinstance(adaptation, dict):
+            continue
+        for index, representation in enumerate(adaptation.get("representation") or []):
+            if not isinstance(representation, dict):
+                continue
+            media_url = representation.get("url") or _pick_url(representation.get("backupUrl"))
+            if not media_url or media_url in seen_urls:
+                continue
+            seen_urls.add(media_url)
+            format_id = str(
+                representation.get("id")
+                or representation.get("qualityType")
+                or len(formats) + index + 1
+            )
+            formats.append(
+                {
+                    "url": media_url,
+                    "format_id": f"ks-{format_id}",
+                    "quality": representation.get("qualityLabel")
+                    or representation.get("qualityType")
+                    or "",
+                    "ext": "mp4",
+                    "width": representation.get("width") or photo.get("width"),
+                    "height": representation.get("height") or photo.get("height"),
+                    "fps": representation.get("frameRate"),
+                    "vcodec": representation.get("videoCodec") or "h264",
+                    "acodec": "aac",
+                    "tbr": representation.get("avgBitrate"),
+                    "filesize": representation.get("fileSize"),
+                    "http_headers": request_headers,
+                }
+            )
+
+    if not formats:
+        for item in photo.get("mainMvUrls") or []:
+            media_url = _pick_url(item)
+            if not media_url or media_url in seen_urls:
+                continue
+            seen_urls.add(media_url)
+            formats.append(
+                {
+                    "url": media_url,
+                    "format_id": f"ks-{len(formats) + 1}",
+                    "quality": "原始画质",
+                    "ext": "mp4",
+                    "width": photo.get("width"),
+                    "height": photo.get("height"),
+                    "fps": (photo.get("ext_params") or {}).get("interval"),
+                    "vcodec": "h264",
+                    "acodec": "aac",
+                    "http_headers": request_headers,
+                }
+            )
+    formats.sort(
+        key=lambda item: (
+            max(item.get("width") or 0, item.get("height") or 0),
+            item.get("filesize") or 0,
+            item.get("tbr") or 0,
+        ),
+        reverse=True,
+    )
+    video_url = formats[0]["url"] if formats else ""
+    if not video_url:
+        raise RuntimeError("已找到快手作品信息，但没有可用的视频地址")
+
+    duration = photo.get("duration") or 0
+    if isinstance(duration, (int, float)) and duration > 1000:
+        duration /= 1000
+    user_eid = str(photo.get("userEid") or "")
+    return {
+        "title": photo.get("caption") or "快手作品",
+        "desc": photo.get("caption") or "",
+        "thumbnail": _pick_url(photo.get("coverUrls"))
+        or _pick_url(photo.get("webpCoverUrls")),
+        "duration": duration,
+        "uploader": photo.get("userName") or "",
+        "unique_id": user_eid,
+        "uid": str(photo.get("userId") or ""),
+        "avatar": photo.get("headUrl") or _pick_url(photo.get("headUrls")),
+        "author_signature": "",
+        "profile_url": (
+            f"https://www.kuaishou.com/profile/{urllib.parse.quote(user_eid, safe='')}"
+            if user_eid
+            else ""
+        ),
+        "platform": "Kuaishou",
+        "play_count": photo.get("viewCount"),
+        "digg_count": photo.get("likeCount"),
+        "comment_count": photo.get("commentCount"),
+        "collect_count": None,
+        "share_count": photo.get("shareCount") or photo.get("forwardCount"),
+        "url": video_url,
+        "http_headers": request_headers,
+        "source": resolved_url or source,
+        "type": "video",
+        "images": [],
+        "formats": formats,
+    }
+
+
 def _temporary_douyin_cookiefile() -> Path | None:
     raw_cookie = load_cookies().get("douyin_cookie") or ""
     if not raw_cookie:
@@ -463,6 +639,9 @@ async def _parse_url(url: str) -> dict:
         except Exception:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(_executor, _ytdlp_extract, url)
+    if _is_kuaishou(url):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_executor, _kuaishou_extract, url)
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(_executor, _ytdlp_extract, url)
 

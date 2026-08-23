@@ -289,7 +289,7 @@
       <h1>一个链接，<br /><span>保存你需要的内容</span></h1>
       <p>粘贴视频或图集链接，即刻查看作品信息、可用清晰度与文件大小，并下载适合你的版本。</p>
       <div class="platforms" aria-label="支持的平台">
-        <span>抖音</span><span>TikTok</span><span>YouTube</span><span>哔哩哔哩</span><span>X</span><span>更多 yt-dlp 平台</span>
+        <span>抖音</span><span>快手</span><span>TikTok</span><span>YouTube</span><span>哔哩哔哩</span><span>X</span><span>更多 yt-dlp 平台</span>
       </div>
     </header>
     <section class="workspace" aria-label="视频链接解析">
@@ -396,7 +396,8 @@
       const title = d.title || d.desc || "未命名作品";
       const play = d.url || "";
       const images = d.images || [];
-      const isTikTok = String(d.platform || "").toLowerCase().includes("tiktok");
+      const platformName = String(d.platform || "").toLowerCase();
+      const showsPlayCount = platformName.includes("tiktok") || platformName.includes("kuaishou");
       const avatar = d.avatar || "";
       const profile = d.profile_url || "";
       const authorName = d.uploader || "未知作者";
@@ -414,7 +415,7 @@
           "</div></div>"
         : "";
       const statSource = [
-        ...(isTikTok ? [["播放", d.play_count]] : []),
+        ...(showsPlayCount ? [["播放", d.play_count]] : []),
         ["点赞", d.digg_count],
         ["评论", d.comment_count],
         ["收藏", d.collect_count],
@@ -531,6 +532,7 @@
     function platformLabel(platform) {
       const value = String(platform || "").toLowerCase();
       if (value.includes("douyin")) return "抖音";
+      if (value.includes("kuaishou")) return "快手";
       if (value.includes("bilibili")) return "哔哩哔哩";
       if (value.includes("youtube")) return "YouTube";
       if (value.includes("tiktok")) return "TikTok";
