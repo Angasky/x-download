@@ -1,66 +1,134 @@
-# x-download · 视频解析服务
+# x-download
 
-一个部署在域名下的「智能视频解析」前端 + 后端兼容层，支持抖音 / TikTok / YouTube / Bilibili / Twitter(X) / Instagram 等 1000+ 平台去水印直链解析。
+粘贴链接即可解析视频直链的本地服务。把三件事收进**一个命令**：
 
-
-## 架构
-
-```
-浏览器 ── https://<你的域名>/ ──┐
-                               nginx (反代 /api/ → 127.0.0.1:18111)
-                               │
-                 compat_sg (FastAPI router)  ← 本仓库 backend/compat_sg.py
-                               │
-           挂载进 Evil0ctal/Douyin_TikTok_Download_API 主程序
-                               │
-           抖音详情 ← KR_API_BASE（你自建的 /douyin/share + /douyin/detail 上游）
-           TikTok  ← tikwm.com 公共 API
-           其他    ← yt-dlp（需自行安装）
-```
-
-| 文件 | 作用 |
+| 组件 | 作用 |
 |------|------|
-| `www/index.html` | 视频解析前端（粘贴链接 → 解析 → 播放/下载） |
-| `backend/compat_sg.py` | 后端兼容路由：`/api/info`(抖音) `/api/tkinfo`(TikTok) `/api/ytdlp`(通用) `/api/stream`(视频流代理) |
-| `backend/compat_app.py` | 附加的 FastAPI 兼容层（`/douyin/share`、`/douyin/detail`、`/health`） |
-| `deploy.sh` | 一键部署脚本：交互填写配置 → 生成 `.env` / nginx vhost / systemd 服务 |
-| `nginx/x-download.conf` | nginx 反代模板（静态参考，deploy.sh 也会生成） |
-| `systemd/x-download-api.service` | systemd 单元模板（静态参考） |
+| **本仓库** | 前端页面 + `/api/parse` 兼容层 + 一键启动 |
+| [Evil0ctal/Douyin_TikTok_Download_API](https://github.com/Evil0ctal/Douyin_TikTok_Download_API) | 抖音 / TikTok（及部分 B 站）解析，启动时自动克隆到 `vendor/` |
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | YouTube、Twitter(X)、Instagram 等其余平台 |
 
-## 后端依赖说明（重要）
+首次启动会安装依赖、向你要 Cookie，然后打开浏览器。
 
-`compat_sg.py` 不是独立进程，它依赖开源主程序 **[Evil0ctal/Douyin_TikTok_Download_API](https://github.com/Evil0ctal/Douyin_TikTok_Download_API)**：
+## 一键启动
 
-1. 克隆并安装上游主程序（含 `app/main.py`、`config.yaml`、`start.py`、`venv`）。
-2. 把本仓库的 `backend/compat_sg.py` 放到 `<douyin-api>/app/compat_sg.py`。
-3. 在 `<douyin-api>/app/main.py` 的 `app = FastAPI(...)` 之后追加一行：
-   ```python
-   from app.compat_sg import router as sg_router
-   app.include_router(sg_router)
-   ```
-4. 用 `KR_API_BASE=<你的上游>` 环境变量启动 `start.py`（见下方）。
+需要：**Python 3.10+**、**Git**。抖音解析还需要你自己的网页 Cookie。
 
-抖音解析需要你自建一个提供 `/douyin/share` 与 `/douyin/detail` 的上游服务，并通过环境变量 `KR_API_BASE` 注入（**不要写死在主程序里**）。TikTok 走公共 tikwm API；其余平台走 yt-dlp。
+**Windows**
 
-## 快速部署
+```bat
+start.bat
+```
+
+或 PowerShell：
+
+```powershell
+.\start.ps1
+```
+
+**macOS / Linux**
 
 ```bash
-git clone <本仓库> x-download && cd x-download
-chmod +x deploy.sh
-sudo ./deploy.sh          # 交互填写域名 / 根目录 / 端口 / KR_API_BASE / 运行用户
+chmod +x start.sh
+./start.sh
 ```
 
-脚本会：复制前端到站点根目录、生成 nginx vhost、生成 systemd 服务、注入 `KR_API_BASE`、reload nginx 并启动服务。
-完成后补全 nginx 里的 `ssl_certificate` / `ssl_certificate_key` 路径并配置 HTTPS 即可访问。
+启动后访问：
 
-## 手动部署要点
+- 页面：http://127.0.0.1:18111/
+- 健康检查：http://127.0.0.1:18111/api/health
+- 上游原始 API 文档：http://127.0.0.1:18111/docs
 
-- 前端只通过相对路径 `/api/*` 调后端，无需硬编码域名。
-- 后端监听 `127.0.0.1:18111`（可在 `config.yaml` 改），nginx 反代 `/api/` 到该端口。
-- 视频流代理 `/api/stream` 为同步读取全 body，大视频会占用线程池，属下载阶段非解析阶段。
+常用参数：
 
-## 安全 / 隐私
+```text
+start.bat --reconfigure     重新填写 Cookie
+start.bat --skip-install    已安装过，只启动
+start.bat --no-start        只安装，不启动
+start.bat --update-vendor   更新 Douyin_TikTok_Download_API
+start.bat --no-browser      不自动打开浏览器
+```
 
-- 原生产环境硬编码的域名（`sg.mxvv.cn`、`kr.mxvv.cn:5555`）、绝对路径（`/www/wwwroot/...`）均已剔除，改为部署时通过 `.env` / 环境变量注入。
-- `compat_sg.py` 默认 `KR_API_BASE` 为空，未配置时返回明确错误，不会泄露任何内部地址。
-- `.env` 已在 `.gitignore`，请勿提交。
+端口改 `config/app.yaml`，或环境变量 `XDOWNLOAD_HOST` / `XDOWNLOAD_PORT`。
+
+## Cookie 怎么填
+
+启动脚本会生成 `config/cookies.yaml`（已 gitignore）。也可以先复制示例：
+
+```bash
+copy config\cookies.example.yaml config\cookies.yaml   # Windows
+cp config/cookies.example.yaml config/cookies.yaml     # Unix
+```
+
+### 抖音（必填）
+
+1. 浏览器打开 [https://www.douyin.com](https://www.douyin.com) 并登录。
+2. `F12` → Network，随便点一个 `douyin.com` 请求。
+3. 复制 Request Headers 里的整段 `Cookie`，贴进启动提示或 `config/cookies.yaml` 的 `douyin_cookie`。
+4. 改完后必须重新运行启动脚本（或重启服务），Cookie 才会写进上游 `vendor/.../crawlers/douyin/web/config.yaml`。
+
+请用**已登录账号**的 Cookie。上游项目本身也强调：风控靠 Cookie，过期就重新复制。
+
+### TikTok（建议填）
+
+同样从 [https://www.tiktok.com](https://www.tiktok.com) 复制 Cookie 到 `tiktok_cookie`。不填时会尝试公共接口兜底，不稳定。
+
+### yt-dlp（可选）
+
+YouTube 会员视频、需登录的 Instagram / X 等，把浏览器 Cookie 导出成 **Netscape `cookies.txt`**：
+
+- 填 `ytdlp_cookies_file` 为文件路径，或直接放到 `config/ytdlp_cookies.txt`。
+- 不要把 Cookie 文件提交到 git。
+
+安装 [ffmpeg](https://ffmpeg.org/) 后，yt-dlp 合并音视频更稳。Windows 示例：`winget install Gyan.FFmpeg`。
+
+## 三个项目怎么拼在一起
+
+```
+浏览器
+  └─ web/index.html
+        POST /api/parse
+              │
+              ├─ 抖音 / TikTok ── HybridCrawler（vendor 里的 Evil0ctal 项目）
+              │                      Cookie 来自 config/cookies.yaml
+              ├─ TikTok 失败时 ── tikwm 公共接口兜底
+              └─ 其他平台 ────── yt-dlp（可选 cookies.txt）
+```
+
+不再需要单独部署 `LEGACY_DOUYIN_API_BASE`。旧的 `/douyin/share` + `/douyin/detail` 桥接仍保留在 `backend/compat_app.py`，仅供特殊部署。
+
+前端只打相对路径 `/api/*`，本机和后面用 nginx 反代都可以。
+
+| 路径 | 说明 |
+|------|------|
+| `POST /api/parse` | 自动分流（推荐） |
+| `POST /api/info` | 与 parse 相同（兼容旧前端） |
+| `POST /api/tkinfo` | TikTok |
+| `POST /api/ytdlp` | 强制走 yt-dlp |
+| `GET /api/stream?url=` | 视频流代理；加 `&download=1` 当附件下载 |
+| `GET /api/health` | 依赖 / Cookie 是否就绪 |
+| `/api/hybrid/video_data` 等 | 上游 Evil0ctal 原接口 |
+
+## 仓库结构
+
+```
+start.bat / start.ps1 / start.sh   一键入口
+scripts/bootstrap.py               克隆上游、建 venv、装依赖、问 Cookie、起服务
+config/app.yaml                    监听地址
+config/cookies.example.yaml        Cookie 模板
+web/index.html                     解析页
+backend/server.py                  FastAPI 入口
+backend/media_api.py               媒体解析与 API 路由
+vendor/                            启动时克隆，不入库
+.venv/                             虚拟环境，不入库
+```
+
+## 生产环境（可选，Linux + nginx）
+
+本机先 `./start.sh --no-start` 装好依赖，再用 `deploy.sh` 写 nginx / systemd。证书路径要自己补。日常开发用一键脚本即可，不必上 nginx。
+
+## 使用边界
+
+仅供学习、调试和下载**你有权保存**的内容。请遵守抖音 / TikTok / YouTube 等平台条款以及当地版权法。不要传播他人 Cookie，也不要把 `config/cookies.yaml` 推到公开仓库。
+
+上游许可证：[Apache-2.0](https://github.com/Evil0ctal/Douyin_TikTok_Download_API)。yt-dlp 使用其自己的 Unlicense。
