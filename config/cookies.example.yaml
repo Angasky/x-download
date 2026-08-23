@@ -11,6 +11,8 @@ douyin_cookie: ""
 tiktok_cookie: ""
 
 # yt-dlp 的 Netscape 格式 cookies.txt（可选）
-# 用于 YouTube / Instagram / Twitter(X) 等需登录的平台
+# 用于 YouTube / Instagram / Twitter(X) 等需登录的平台。
+# X/Twitter 可在 xd 或 start.bat --reconfigure 中直接粘贴浏览器 Cookie JSON，
+# 程序会转换并合并到这个文件中。
 # 可把文件放到 config/ytdlp_cookies.txt，或在下面写绝对路径
 ytdlp_cookies_file: ""

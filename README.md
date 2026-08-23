@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/Windows%20%7C%20Linux%20%7C%20macOS-supported-6E7681?style=flat-square" alt="Platforms">
 
   <h3>粘贴链接，解析作品信息，选择清晰度，一键预览或下载。</h3>
-  <p>抖音 · TikTok · YouTube · Bilibili · X · Instagram 以及更多 yt-dlp 支持的平台</p>
+  <p>抖音 · 快手 · TikTok · YouTube · Bilibili · X · Instagram 以及更多平台</p>
 
   <p>
     <a href="#-快速开始"><b>快速开始</b></a> ·
@@ -28,14 +28,14 @@
 
 | | 能力 | 说明 |
 |:---:|---|---|
-| 🎬 | 多平台解析 | 抖音使用 DouK-Downloader；TikTok 使用 tikwm；其他平台交给 yt-dlp |
+| 🎬 | 多平台解析 | 抖音使用 DouK-Downloader；其他平台按需使用专用后端或 yt-dlp |
 | 👤 | 完整作品信息 | 作者头像、名称、账号 ID、UID、主页、简介、视频文案和互动数据 |
 | 🎚️ | 清晰度按钮 | 同分辨率重复档位自动合并，保留综合质量更合适的版本 |
 | 📦 | 文件大小 | 优先显示精确大小，也可根据码率和时长显示估算值 |
 | 📊 | 实时下载进度 | 分轨下载时展示百分比、速度、剩余时间与音视频合并状态 |
 | ▶️ | 本地预览 | 清晰度按钮会同步更新预览、下载地址和媒体直链 |
 | 🖼️ | 图集支持 | 自动识别并展示抖音图集作品 |
-| 🔐 | Cookie 支持 | 支持抖音/TikTok 请求 Cookie 和 yt-dlp Netscape Cookie 文件 |
+| 🔐 | Cookie 支持 | 支持抖音、TikTok 及 X/Twitter Cookie，并兼容 yt-dlp Netscape Cookie 文件 |
 | 🚀 | 一键启动 | 自动创建虚拟环境、安装依赖、克隆上游并打开页面 |
 
 ### 解析结果
@@ -217,6 +217,24 @@ Cookie 过期或账号、网络环境变化后，需要重新复制。VPN 无法
 <summary><b>TikTok Cookie 获取方法</b></summary>
 
 TikTok Cookie 对公开视频不是始终必填。需要登录内容时，可登录 [TikTok](https://www.tiktok.com/)，按照抖音相同的方法复制请求 Cookie，并写入 `tiktok_cookie`。
+
+</details>
+
+<details>
+<summary><b>X / Twitter Cookie 获取方法</b></summary>
+
+部分敏感内容、年龄或地区受限内容对未登录访客只返回 `TweetTombstone`，yt-dlp 会提示 `No video could be found in this tweet`。此时需要配置本人 X 账号的 Cookie：
+
+1. 登录 [X 网页版](https://x.com/)，确认浏览器中可以正常播放目标视频。
+2. 使用只在本机处理数据的 Cookie 导出扩展，导出 `x.com` 的完整 Cookie JSON。
+3. Linux 输入 `xd` 并选择“修改 Cookie”；Windows 运行 `start.bat --reconfigure`。
+4. 在“X/Twitter Cookie”提示处直接粘贴完整多行 JSON，包括最外层的 `[` 和 `]`。
+5. 程序会自动转换为 Netscape 格式，并与现有 YouTube Cookie 合并到 yt-dlp Cookie 文件中。
+
+也可以粘贴来自 `x.com` 请求标头的单行 Cookie。关键登录字段通常包含 `auth_token` 和 `ct0`，但请始终复制完整 Cookie，不要逐项手工拼接。
+
+> [!WARNING]
+> X Cookie 等同于账号登录凭证。只应填写到本人设备或本人服务器，严禁发送到聊天、Issue、日志或提交到 Git；高频下载可能导致账号或 IP 受到限制。
 
 </details>
 

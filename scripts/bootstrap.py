@@ -25,6 +25,7 @@ VENV_DIR = ROOT / ".venv"
 CONFIG_DIR = ROOT / "config"
 COOKIES_FILE = CONFIG_DIR / "cookies.yaml"
 COOKIES_EXAMPLE = CONFIG_DIR / "cookies.example.yaml"
+YTDLP_COOKIES = CONFIG_DIR / "ytdlp_cookies.txt"
 APP_CONFIG = CONFIG_DIR / "app.yaml"
 
 
@@ -179,7 +180,18 @@ def save_app_config(host: str, port: int, open_browser: bool) -> None:
 
 
 def prompt_cookies(reconfigure: bool) -> None:
-    from backend.cookies import load_cookies, save_cookies
+    from backend.cookies import load_cookies, save_cookies, save_x_cookies
+
+    def prompt_pasted_value(label: str) -> str:
+        first_line = input(label).strip()
+        if not first_line:
+            return ""
+        lines = [first_line]
+        if first_line.startswith("[") or first_line.startswith("{"):
+            closing = "]" if first_line.startswith("[") else "}"
+            while not lines[-1].rstrip().endswith(closing):
+                lines.append(input())
+        return "\n".join(lines)
 
     current = load_cookies() if COOKIES_FILE.exists() else {
         "douyin_cookie": "",
@@ -198,24 +210,42 @@ def prompt_cookies(reconfigure: bool) -> None:
     print("抖音：打开 https://www.douyin.com 并登录 -> F12 -> Network")
     print("     点任意 douyin.com 请求 -> 复制 Request Headers 的 Cookie")
     print("TikTok：同样从 https://www.tiktok.com 复制 Cookie（可回车跳过）")
+    print("X/Twitter：可直接粘贴浏览器扩展导出的完整 Cookie JSON，用于受限视频")
     print("yt-dlp：Netscape cookies.txt 路径，可选；也可放到 config/ytdlp_cookies.txt")
     print()
     try:
         douyin = input("抖音 Cookie（直接回车保留已有值）:\n").strip() or current.get("douyin_cookie", "")
         tiktok = input("TikTok Cookie（可空）:\n").strip() or current.get("tiktok_cookie", "")
         ytdlp = input("yt-dlp cookies.txt 路径（可空）:\n").strip() or current.get("ytdlp_cookies_file", "")
+        x_cookie_export = prompt_pasted_value(
+            "X/Twitter Cookie JSON / 单行 Cookie（自动合并到 yt-dlp Cookie 文件；回车保留）:\n"
+        )
     except EOFError:
         douyin = current.get("douyin_cookie", "")
         tiktok = current.get("tiktok_cookie", "")
         ytdlp = current.get("ytdlp_cookies_file", "")
+        x_cookie_export = ""
 
-    save_cookies({"douyin_cookie": douyin, "tiktok_cookie": tiktok, "ytdlp_cookies_file": ytdlp})
+    save_cookies({
+        "douyin_cookie": douyin,
+        "tiktok_cookie": tiktok,
+        "ytdlp_cookies_file": ytdlp,
+    })
     if not douyin:
         print("[warning] 未填写抖音 Cookie：抖音链接解析大概率失败，可稍后编辑 config/cookies.yaml 再启动。")
     else:
         print("[ok] 抖音 Cookie 已保存")
     if tiktok:
         print("[ok] TikTok Cookie 已保存")
+    if x_cookie_export:
+        target = Path(ytdlp).expanduser() if ytdlp else YTDLP_COOKIES
+        if not target.is_absolute():
+            target = ROOT / target
+        try:
+            count = save_x_cookies(x_cookie_export, target)
+            print(f"[ok] X/Twitter Cookie 已保存（{count} 项），可解析需要登录的视频")
+        except ValueError as exc:
+            print(f"[warning] X/Twitter Cookie 未保存：{exc}")
 
 
 def start_server(python: Path, host: str, port: int, open_browser: bool) -> None:

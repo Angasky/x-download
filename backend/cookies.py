@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,88 @@ def load_cookies() -> dict[str, str]:
         "tiktok_cookie": tiktok,
         "ytdlp_cookies_file": ytdlp,
     }
+
+
+def _browser_cookie_entries(value: str, default_domain: str = ".x.com") -> list[dict[str, Any]]:
+    value = (value or "").strip()
+    if not value:
+        return []
+    if value[0] not in "[{":
+        if value.lower().startswith("cookie:"):
+            value = value.split(":", 1)[1].strip()
+        entries: list[dict[str, Any]] = []
+        for part in value.replace("\r", "").replace("\n", "").split(";"):
+            name, separator, cookie_value = part.strip().partition("=")
+            if separator and name:
+                entries.append({"domain": default_domain, "name": name, "value": cookie_value})
+        return entries
+
+    try:
+        exported = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Cookie JSON 格式错误：第 {exc.lineno} 行第 {exc.colno} 列") from exc
+    if isinstance(exported, dict):
+        exported = exported.get("cookies")
+    if not isinstance(exported, list):
+        raise ValueError("Cookie JSON 必须是数组，或包含 cookies 数组的对象")
+    return [item for item in exported if isinstance(item, dict)]
+
+
+def _is_x_cookie_domain(domain: str) -> bool:
+    host = domain.removeprefix("#HttpOnly_").lstrip(".").lower()
+    return host == "x.com" or host.endswith(".x.com") or host == "twitter.com" or host.endswith(".twitter.com")
+
+
+def save_x_cookies(value: str, path: Path = YTDLP_COOKIES) -> int:
+    """Merge an X browser JSON/header export into a Netscape yt-dlp cookie jar."""
+    entries = _browser_cookie_entries(value)
+    output: list[str] = []
+    for item in entries:
+        domain = str(item.get("domain") or ".x.com").strip()
+        name = str(item.get("name") or "").strip()
+        cookie_value = str(item.get("value") or "")
+        if not _is_x_cookie_domain(domain):
+            continue
+        if not name or any(char in name for char in "=;\t\r\n"):
+            continue
+        if any(char in cookie_value for char in "\t\r\n"):
+            continue
+        host_only = bool(item.get("hostOnly", False))
+        domain = domain.lstrip(".") if host_only else f".{domain.lstrip('.')}"
+        include_subdomains = "FALSE" if host_only else "TRUE"
+        secure = "TRUE" if bool(item.get("secure", True)) else "FALSE"
+        try:
+            expires = max(0, int(float(item.get("expirationDate") or 0)))
+        except (TypeError, ValueError):
+            expires = 0
+        netscape_domain = f"#HttpOnly_{domain}" if bool(item.get("httpOnly")) else domain
+        output.append(
+            "\t".join(
+                (netscape_domain, include_subdomains, str(item.get("path") or "/"), secure, str(expires), name, cookie_value)
+            )
+        )
+    if not output:
+        raise ValueError("没有找到有效的 x.com / twitter.com Cookie")
+
+    preserved: list[str] = []
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            fields = line.split("\t")
+            if len(fields) >= 7 and _is_x_cookie_domain(fields[0]):
+                continue
+            if line.strip() not in {"# Netscape HTTP Cookie File", "# HTTP Cookie File"}:
+                preserved.append(line)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = "# Netscape HTTP Cookie File\n"
+    if preserved:
+        text += "\n".join(preserved).strip("\n") + "\n"
+    text += "\n".join(output) + "\n"
+    path.write_text(text, encoding="utf-8", newline="\n")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+    return len(output)
 
 
 def save_cookies(values: dict[str, str]) -> None:
