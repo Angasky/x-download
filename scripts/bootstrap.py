@@ -166,6 +166,18 @@ def load_app_config() -> tuple[str, int, bool]:
     return host, port, open_browser
 
 
+def save_app_config(host: str, port: int, open_browser: bool) -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    APP_CONFIG.write_text(
+        "# x-download 服务配置\n"
+        f"host: {host}\n"
+        f"port: {port}\n"
+        "# 浏览器自动打开（一键启动时）\n"
+        f"open_browser: {'true' if open_browser else 'false'}\n",
+        encoding="utf-8",
+    )
+
+
 def prompt_cookies(reconfigure: bool) -> None:
     from backend.cookies import load_cookies, save_cookies
 
@@ -253,6 +265,8 @@ def main() -> None:
     parser.add_argument("--reconfigure", action="store_true", help="重新填写 Cookie")
     parser.add_argument("--no-start", action="store_true", help="只安装，不启动服务")
     parser.add_argument("--no-browser", action="store_true", help="启动后不打开浏览器")
+    parser.add_argument("--host", help="设置并保存监听地址，例如 0.0.0.0")
+    parser.add_argument("--port", type=int, help="设置并保存监听端口")
     args = parser.parse_args()
 
     os.chdir(str(ROOT))
@@ -267,11 +281,21 @@ def main() -> None:
     python = ensure_dependencies_healthy(python)
     validate_app_import(python)
 
+    host, port, open_browser = load_app_config()
+    if args.host:
+        host = args.host
+    if args.port is not None:
+        if not 1 <= args.port <= 65535:
+            raise SystemExit("端口必须在 1 到 65535 之间。")
+        port = args.port
+    if args.host or args.port is not None:
+        save_app_config(host, port, open_browser)
+        print(f"[ok] 服务监听配置已保存：{host}:{port}")
+
     prompt_cookies(reconfigure=args.reconfigure)
     if args.no_start:
         print("安装完成。下次直接运行 start.bat / start.ps1 / ./start.sh")
         return
-    host, port, open_browser = load_app_config()
     if args.no_browser:
         open_browser = False
     start_server(python, host, port, open_browser)

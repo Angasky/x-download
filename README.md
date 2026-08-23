@@ -108,13 +108,21 @@ winget install Gyan.FFmpeg
 <details>
 <summary><b>macOS / Linux</b></summary>
 
-Linux 推荐使用一行命令自动安装并启动：
+Linux 推荐使用一行命令自动安装。交互过程中可选择“公网访问”，安装器会自动监听 `0.0.0.0:18111`、配置 systemd 常驻服务，并在 UFW 已启用时放行端口：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Angasky/x-download/refs/heads/main/install.sh | bash
 ```
 
 安装器默认将项目保存到 `~/x-download`，自动准备 Git、ffmpeg、Python 3.12、虚拟环境和项目依赖。重复执行同一命令会安全更新现有安装并保留配置。
+
+无交互环境可显式开启公网模式：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Angasky/x-download/refs/heads/main/install.sh | bash -s -- --public
+```
+
+> 云服务器还需要在安全组中放行入站 TCP `18111`。设置来源为 `0.0.0.0/0` 会向整个公网开放，请确保你了解风险；安装脚本无法在没有云账号权限时自动修改安全组。
 
 只安装但不启动：
 
@@ -150,6 +158,8 @@ chmod +x start.sh
 | 参数 | 用途 |
 |---|---|
 | `--reconfigure` | 重新填写 Cookie |
+| `--public` | 公网监听并安装 systemd 常驻服务 |
+| `--local` | 仅监听本机，非交互安装时默认使用 |
 | `--skip-install` | 跳过依赖安装和上游克隆 |
 | `--no-start` | 只安装和检查，不启动服务 |
 | `--update-vendor` | 更新 DouK-Downloader |

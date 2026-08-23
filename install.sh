@@ -19,6 +19,8 @@ fi
 DEFAULT_INSTALL_DIR="${USER_HOME}/x-download"
 INSTALL_DIR="${XDOWNLOAD_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 START_ARGS=("--no-browser" "--update-vendor")
+ACCESS_MODE=""
+NO_START=0
 
 say() {
   printf '\n\033[1;36m[x-download]\033[0m %s\n' "$*"
@@ -116,10 +118,12 @@ usage() {
 x-download Linux 一键安装器
 
 用法：
-  install.sh [--install-dir 路径] [--no-start] [--reconfigure]
+  install.sh [--install-dir 路径] [--public|--local] [--no-start] [--reconfigure]
 
 选项：
   --install-dir PATH  指定安装目录，默认 ~/x-download
+  --public            开启公网监听并安装 systemd 常驻服务
+  --local             仅监听本机（默认非交互模式）
   --no-start          只安装，不立即启动服务
   --reconfigure       重新配置 Cookie
   -h, --help          显示帮助
@@ -133,7 +137,20 @@ while [[ $# -gt 0 ]]; do
       INSTALL_DIR="$2"
       shift 2
       ;;
-    --no-start|--reconfigure)
+    --public)
+      ACCESS_MODE="public"
+      shift
+      ;;
+    --local)
+      ACCESS_MODE="local"
+      shift
+      ;;
+    --no-start)
+      NO_START=1
+      START_ARGS+=("$1")
+      shift
+      ;;
+    --reconfigure)
       START_ARGS+=("$1")
       shift
       ;;
@@ -180,9 +197,93 @@ say "准备依赖并启动 x-download"
 cd "$INSTALL_DIR"
 chmod +x start.sh install.sh
 printf '安装目录：%s\n' "$INSTALL_DIR"
-printf '访问地址：http://127.0.0.1:18111/\n'
 
+HAS_TTY=0
 if [[ -t 1 ]] && { exec 3</dev/tty; } 2>/dev/null; then
+  HAS_TTY=1
+fi
+
+if [[ -z "$ACCESS_MODE" && "$HAS_TTY" -eq 1 ]]; then
+  printf '\n是否开启公网访问并安装后台常驻服务？[y/N]: ' >&3
+  read -r public_answer <&3 || public_answer=""
+  case "${public_answer,,}" in
+    y|yes|是)
+      ACCESS_MODE="public"
+      ;;
+    *)
+      ACCESS_MODE="local"
+      ;;
+  esac
+fi
+ACCESS_MODE="${ACCESS_MODE:-local}"
+
+run_bootstrap() {
+  if [[ "$HAS_TTY" -eq 1 ]]; then
+    "$python_cmd" scripts/bootstrap.py "$@" <&3
+  else
+    "$python_cmd" scripts/bootstrap.py "$@"
+  fi
+}
+
+install_public_service() {
+  command_exists systemctl || fail "当前系统不支持 systemd，无法安装后台常驻服务。"
+  [[ "$INSTALL_DIR" != *$'\n'* && "$INSTALL_DIR" != *'"'* ]] \
+    || fail "公网服务安装目录不能包含换行符或双引号。"
+
+  local service_file
+  service_file="$(mktemp)"
+  printf '%s\n' \
+    '[Unit]' \
+    'Description=x-download web service' \
+    'After=network-online.target' \
+    'Wants=network-online.target' \
+    '' \
+    '[Service]' \
+    'Type=simple' \
+    "User=$(id -un)" \
+    "WorkingDirectory=\"$INSTALL_DIR\"" \
+    "Environment=\"PYTHONPATH=$INSTALL_DIR\"" \
+    'Environment="XDOWNLOAD_HOST=0.0.0.0"' \
+    'Environment="XDOWNLOAD_PORT=18111"' \
+    "ExecStart=\"$INSTALL_DIR/.venv/bin/python\" -m uvicorn backend.server:app --host 0.0.0.0 --port 18111 --no-use-colors" \
+    'Restart=on-failure' \
+    'RestartSec=3' \
+    '' \
+    '[Install]' \
+    'WantedBy=multi-user.target' > "$service_file"
+  run_as_root install -o root -g root -m 0644 "$service_file" /etc/systemd/system/x-download.service
+  rm -f -- "$service_file"
+
+  if command_exists ufw && run_as_root ufw status 2>/dev/null | grep -q '^Status: active'; then
+    run_as_root ufw allow 18111/tcp
+  fi
+  run_as_root systemctl daemon-reload
+  run_as_root systemctl enable x-download.service
+  run_as_root systemctl restart x-download.service
+}
+
+if [[ "$ACCESS_MODE" == "public" ]]; then
+  printf '访问模式：公网（0.0.0.0:18111）\n'
+  public_args=("${START_ARGS[@]}" "--host" "0.0.0.0" "--port" "18111")
+  if [[ "$NO_START" -eq 0 ]]; then
+    public_args+=("--no-start")
+  fi
+  run_bootstrap "${public_args[@]}"
+  if [[ "$NO_START" -eq 1 ]]; then
+    printf '已保存公网监听配置；根据 --no-start 要求未启动服务。\n'
+    exit 0
+  fi
+  install_public_service
+  printf '\n公网服务已启动并设置为开机自启。\n'
+  printf '访问地址：http://<服务器公网IP>:18111/\n'
+  printf '如果仍无法访问，请在云厂商安全组中放行 TCP 18111，来源设为 0.0.0.0/0。\n'
+  printf '查看状态：sudo systemctl status x-download\n'
+  exit 0
+fi
+
+printf '访问模式：仅本机（http://127.0.0.1:18111/）\n'
+START_ARGS+=("--host" "127.0.0.1")
+if [[ "$HAS_TTY" -eq 1 ]]; then
   exec "$python_cmd" scripts/bootstrap.py "${START_ARGS[@]}" <&3
 fi
 exec "$python_cmd" scripts/bootstrap.py "${START_ARGS[@]}"
