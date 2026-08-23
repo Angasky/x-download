@@ -1,0 +1,5 @@
+# x-download 本地服务配置
+host: 127.0.0.1
+port: 18111
+# 浏览器自动打开（一键启动时）
+open_browser: true

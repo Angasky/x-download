@@ -1,0 +1,16 @@
+# 复制本文件为 cookies.yaml 后填写。cookies.yaml 不会入库。
+#
+# 抖音 Cookie（必填，否则抖音解析会失败）：
+# 1. 浏览器打开 https://www.douyin.com 并登录
+# 2. F12 → Network → 点开任意 douyin.com 请求
+# 3. 复制 Request Headers 里的整段 Cookie
+douyin_cookie: ""
+
+# TikTok Cookie（建议填写；不填则尝试公共接口兜底）
+# 同样从 https://www.tiktok.com 登录后复制 Cookie
+tiktok_cookie: ""
+
+# yt-dlp 的 Netscape 格式 cookies.txt（可选）
+# 用于 YouTube / Instagram / Twitter(X) 等需登录的平台
+# 可把文件放到 config/ytdlp_cookies.txt，或在下面写绝对路径
+ytdlp_cookies_file: ""

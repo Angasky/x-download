@@ -1,14 +1,19 @@
-# 私密部署配置（由 deploy.sh 生成，含域名/上游地址/运行用户）
+# 私密配置
 .env
+config/cookies.yaml
+config/ytdlp_cookies.txt
+*.cookies.txt
 
-# 系统生成
+# 运行时
+.venv/
+venv/
+vendor/
 __pycache__/
 *.pyc
 .DS_Store
 *.log
+download/
 
-# 部署产物（站点根、证书、单元文件由部署脚本生成，不入库）
-/www/
-/etc/
+# 证书
 *.pem
 *.key

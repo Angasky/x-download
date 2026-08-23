@@ -1,0 +1,620 @@
+from __future__ import annotations
+
+import asyncio
+import concurrent.futures
+import contextlib
+import http.cookiejar
+import json
+import re
+import shutil
+import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+from typing import Any, Optional
+
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+
+from backend.cookies import load_cookies, ytdlp_cookiefile
+from backend.douk_adapter import fetch_douyin_detail
+from backend.paths import DOUK_VENDOR
+
+router = APIRouter()
+
+_CACHE_TTL = 120.0
+_cache: dict[str, tuple[Any, float]] = {}
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+try:
+    import yt_dlp  # noqa: F401
+except Exception:
+    yt_dlp = None
+
+
+def _cache_get(key: str):
+    v = _cache.get(key)
+    if v and (time.time() - v[1]) < _CACHE_TTL:
+        return v[0]
+    if v:
+        _cache.pop(key, None)
+    return None
+
+
+def _cache_put(key: str, val):
+    _cache[key] = (val, time.time())
+
+
+def _pick_url(obj: Any) -> str:
+    if isinstance(obj, dict):
+        return _pick_url(obj.get("url_list") or obj.get("url") or "")
+    if isinstance(obj, list) and obj:
+        return _pick_url(obj[-1])
+    if isinstance(obj, str):
+        return obj
+    return ""
+
+
+def _extract_aweme_id(url: str) -> str:
+    m = re.search(r"(?:video|share/video)/(\d{19})", url)
+    if m:
+        return m.group(1)
+    m = re.search(r"/(\d{19})", url)
+    if m:
+        return m.group(1)
+    digits = re.findall(r"\d{19}", url)
+    return digits[0] if digits else ""
+
+
+def _extract_tiktok_id(url: str) -> str:
+    m = re.search(r"/video/(\d+)", url)
+    if m:
+        return m.group(1)
+    m = re.search(r"/(\d{19,})", url)
+    if m:
+        return m.group(1)
+    digits = re.findall(r"\d{19,}", url)
+    return digits[0] if digits else ""
+
+
+_DOUYIN_DOMAINS = re.compile(r"(douyin\.com|iesdouyin\.com|v\.douyin\.com)", re.IGNORECASE)
+_TIKTOK_DOMAINS = re.compile(r"(tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com)", re.IGNORECASE)
+_YOUTUBE_DOMAINS = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_YOUTUBE_COOKIE_HELP = (
+    "请配置 COOKIE，教程可查看 README.md 或 yt-dlp Wiki："
+    "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies"
+)
+
+
+def _is_douyin(url: str) -> bool:
+    return bool(_DOUYIN_DOMAINS.search(url))
+
+
+def _is_tiktok(url: str) -> bool:
+    return bool(_TIKTOK_DOMAINS.search(url))
+
+
+def _friendly_error(url: str, error: Exception | str) -> str:
+    message = _ANSI_ESCAPE.sub("", str(error)).strip()
+    youtube_cookie_error = any(
+        marker in message.lower()
+        for marker in (
+            "sign in to confirm you’re not a bot",
+            "sign in to confirm you're not a bot",
+            "use --cookies-from-browser or --cookies",
+            "login_required",
+        )
+    )
+    if _YOUTUBE_DOMAINS.search(url) and youtube_cookie_error:
+        return _YOUTUBE_COOKIE_HELP
+    return message
+
+
+def _extract_url(text: str) -> str:
+    match = re.search(r"https?://[^\s]+", text)
+    return match.group(0).rstrip("，。！？,.;!?)）]") if match else text.strip()
+
+
+def _resolve_douyin_url(url: str) -> str:
+    request = urllib.request.Request(
+        _extract_url(url),
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return response.geturl()
+
+
+def _map_douk_detail(url: str, data: dict) -> dict:
+    author = data.get("author") or {}
+    if not isinstance(author, dict):
+        author = {}
+    stats = data.get("statistics") or {}
+    if not isinstance(stats, dict):
+        stats = {}
+    video = data.get("video") or {}
+    if not isinstance(video, dict):
+        video = {}
+    duration_ms = video.get("duration") or data.get("duration") or 0
+
+    formats: list[dict[str, Any]] = []
+    for bitrate in video.get("bit_rate") or []:
+        if not isinstance(bitrate, dict):
+            continue
+        play = bitrate.get("play_addr") or {}
+        media_url = _pick_url(play)
+        if media_url:
+            bit_rate = bitrate.get("bit_rate") or 0
+            file_size = play.get("data_size") or bitrate.get("data_size")
+            estimated_size = None
+            if not file_size and isinstance(bit_rate, (int, float)) and isinstance(duration_ms, (int, float)):
+                estimated_size = round(bit_rate * duration_ms / 8000)
+            formats.append(
+                {
+                    "url": media_url,
+                    "quality": bitrate.get("gear_name") or bitrate.get("quality_type") or "",
+                    "width": play.get("width"),
+                    "height": play.get("height"),
+                    "fps": bitrate.get("FPS"),
+                    "tbr": bit_rate,
+                    "filesize": file_size,
+                    "filesize_approx": estimated_size,
+                }
+            )
+    formats.sort(
+        key=lambda item: (
+            max(item.get("width") or 0, item.get("height") or 0),
+            item.get("tbr") or 0,
+        ),
+        reverse=True,
+    )
+    video_url = (formats[0]["url"] if formats else "") or _pick_url(video.get("play_addr"))
+
+    image_urls = [
+        image_url
+        for image in data.get("images") or []
+        if isinstance(image, dict) and (image_url := _pick_url(image))
+    ]
+    if video_url and not formats:
+        formats = [{"url": video_url, "quality": "default"}]
+    if not video_url:
+        formats = [{"url": image_url, "quality": "image"} for image_url in image_urls]
+
+    share_info = data.get("share_info") or {}
+    if not isinstance(share_info, dict):
+        share_info = {}
+    description = data.get("desc") or share_info.get("share_title") or ""
+    thumb = _pick_url(video.get("dynamic_cover")) or _pick_url(video.get("cover"))
+    avatar = (
+        _pick_url(author.get("avatar_larger"))
+        or _pick_url(author.get("avatar_medium"))
+        or _pick_url(author.get("avatar_thumb"))
+        or _pick_url(author.get("avatar_300x300"))
+        or _pick_url(author.get("avatar_168x168"))
+        or author.get("avatar_url")
+        or ""
+    )
+    author_share = author.get("share_info") or {}
+    if not isinstance(author_share, dict):
+        author_share = {}
+    sec_uid = author.get("sec_uid") or ""
+    profile_url = author_share.get("share_url") or (
+        f"https://www.douyin.com/user/{urllib.parse.quote(str(sec_uid), safe='')}"
+        if sec_uid
+        else ""
+    )
+    duration = duration_ms
+    if isinstance(duration, (int, float)) and duration > 1000:
+        duration /= 1000
+    return {
+        "title": description,
+        "desc": description,
+        "thumbnail": thumb,
+        "duration": duration,
+        "uploader": author.get("nickname") or "",
+        "unique_id": author.get("unique_id") or author.get("short_id") or "",
+        "uid": author.get("uid") or "",
+        "sec_uid": sec_uid,
+        "avatar": avatar,
+        "author_signature": author.get("signature") or author_share.get("share_desc") or "",
+        "profile_url": profile_url,
+        "platform": "Douyin",
+        "play_count": stats.get("play_count"),
+        "digg_count": stats.get("digg_count"),
+        "comment_count": stats.get("comment_count"),
+        "collect_count": stats.get("collect_count"),
+        "share_count": stats.get("share_count"),
+        "url": video_url or (image_urls[0] if image_urls else ""),
+        "source": url,
+        "type": "image" if image_urls else "video",
+        "images": image_urls,
+        "video_data": video,
+        "fallbackUrl": video_url,
+        "formats": formats,
+    }
+
+
+async def _douk_parse(url: str) -> dict:
+    detail_id = _extract_aweme_id(url)
+    resolved_url = url
+    if not detail_id:
+        loop = asyncio.get_running_loop()
+        resolved_url = await loop.run_in_executor(_executor, _resolve_douyin_url, url)
+        detail_id = _extract_aweme_id(resolved_url)
+    if not detail_id:
+        raise RuntimeError("无法从抖音链接提取作品 ID")
+    cookie = load_cookies().get("douyin_cookie") or ""
+    data = await fetch_douyin_detail(detail_id, cookie)
+    return _map_douk_detail(resolved_url, data)
+
+
+def _tikwm_extract(url: str) -> dict:
+    api_url = f"https://www.tikwm.com/api/?url={urllib.parse.quote(url, safe='')}"
+    req = urllib.request.Request(api_url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    if data.get("code") != 0 or not data.get("data"):
+        raise Exception(data.get("msg") or "tikwm 返回错误")
+    d = data["data"]
+    author = d.get("author") if isinstance(d.get("author"), dict) else {}
+    unique_id = author.get("unique_id") or ""
+    tiktok_formats = []
+    for key, quality, size_key in (
+        ("hdplay", "高清无水印", "hd_size"),
+        ("play", "无水印", "size"),
+        ("wmplay", "带水印", "wm_size"),
+    ):
+        if media_url := d.get(key):
+            tiktok_formats.append({"url": media_url, "quality": quality, "filesize": d.get(size_key)})
+    return {
+        "title": d.get("title") or "",
+        "desc": d.get("title") or "",
+        "thumbnail": d.get("cover") or d.get("origin_cover") or "",
+        "duration": d.get("duration") or 0,
+        "uploader": author.get("nickname") or "",
+        "unique_id": unique_id,
+        "uid": author.get("uid") or author.get("id") or "",
+        "avatar": _pick_url(author.get("avatar")) or _pick_url(author.get("avatar_thumb")),
+        "author_signature": author.get("signature") or author.get("bio") or "",
+        "profile_url": f"https://www.tiktok.com/@{urllib.parse.quote(str(unique_id), safe='')}" if unique_id else "",
+        "platform": "TikTok",
+        "play_count": d.get("play_count"),
+        "digg_count": d.get("digg_count"),
+        "comment_count": d.get("comment_count"),
+        "collect_count": d.get("collect_count"),
+        "share_count": d.get("share_count"),
+        "url": d.get("hdplay") or d.get("play") or "",
+        "source": url,
+        "formats": tiktok_formats,
+    }
+
+
+def _temporary_douyin_cookiefile() -> Path | None:
+    raw_cookie = load_cookies().get("douyin_cookie") or ""
+    if not raw_cookie:
+        return None
+
+    # Browser Cookie headers are often less strict than SimpleCookie accepts.
+    # Parse each name=value pair independently so one unusual value does not
+    # invalidate the entire cookie header.
+    parsed: dict[str, str] = {}
+    cookie_name = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+    for part in raw_cookie.replace("\r", "").replace("\n", "").split(";"):
+        name, separator, value = part.strip().partition("=")
+        if separator and cookie_name.fullmatch(name):
+            parsed[name] = value.strip().strip('"')
+    if not parsed:
+        return None
+
+    handle = tempfile.NamedTemporaryFile(prefix="x-download-douyin-", suffix=".txt", delete=False)
+    handle.close()
+    path = Path(handle.name)
+    jar = http.cookiejar.MozillaCookieJar(str(path))
+    for name, value in parsed.items():
+        jar.set_cookie(
+            http.cookiejar.Cookie(
+                version=0,
+                name=name,
+                value=value,
+                port=None,
+                port_specified=False,
+                domain=".douyin.com",
+                domain_specified=True,
+                domain_initial_dot=True,
+                path="/",
+                path_specified=True,
+                secure=True,
+                expires=None,
+                discard=True,
+                comment=None,
+                comment_url=None,
+                rest={},
+                rfc2109=False,
+            )
+        )
+    jar.save(ignore_discard=True, ignore_expires=True)
+    return path
+
+
+def _ytdlp_extract(url: str) -> dict:
+    if yt_dlp is None:
+        raise Exception("yt-dlp 未安装，请重新运行一键启动脚本")
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "nocolor": True,
+        "skip_download": True,
+        "socket_timeout": 30,
+        "nocheckcertificate": True,
+    }
+    temporary_cookiefile = None
+    cookiefile = ytdlp_cookiefile()
+    if not cookiefile and _is_douyin(url):
+        temporary_cookiefile = _temporary_douyin_cookiefile()
+        cookiefile = str(temporary_cookiefile) if temporary_cookiefile else None
+    if cookiefile:
+        ydl_opts["cookiefile"] = cookiefile
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    finally:
+        if temporary_cookiefile:
+            with contextlib.suppress(OSError):
+                temporary_cookiefile.unlink()
+    if not info:
+        return {}
+    formats = info.get("formats") or []
+    best_url = info.get("url") or ""
+    if not best_url and formats:
+        video_formats = [f for f in formats if f.get("vcodec") != "none" and f.get("url")]
+        if video_formats:
+            best = max(video_formats, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0))
+            best_url = best.get("url", "")
+        elif formats:
+            best_url = formats[-1].get("url", "")
+    return {
+        "title": info.get("title") or info.get("fulltitle") or "",
+        "desc": info.get("description") or "",
+        "thumbnail": info.get("thumbnail") or "",
+        "duration": info.get("duration") or 0,
+        "uploader": info.get("uploader") or info.get("creator") or "",
+        "unique_id": info.get("uploader_id") or "",
+        "uid": info.get("channel_id") or info.get("uploader_id") or "",
+        "avatar": info.get("uploader_avatar") or "",
+        "author_signature": info.get("channel_follower_count_text") or "",
+        "profile_url": info.get("uploader_url") or info.get("channel_url") or "",
+        "platform": info.get("extractor") or info.get("extractor_key") or "",
+        "play_count": info.get("view_count"),
+        "digg_count": info.get("like_count"),
+        "comment_count": info.get("comment_count"),
+        "collect_count": (
+            info.get("favourite_count")
+            if info.get("favourite_count") is not None
+            else info.get("favorite_count")
+        ),
+        "share_count": (
+            info.get("share_count")
+            if info.get("share_count") is not None
+            else info.get("repost_count")
+        ),
+        "url": best_url,
+        "source": url,
+        "formats": [
+            {
+                "url": f.get("url", ""),
+                "quality": f.get("format_note") or f.get("format_id") or "",
+                "ext": f.get("ext") or "",
+                "width": f.get("width"),
+                "height": f.get("height"),
+                "fps": f.get("fps"),
+                "vcodec": f.get("vcodec"),
+                "acodec": f.get("acodec"),
+                "tbr": f.get("tbr"),
+                "filesize": f.get("filesize"),
+                "filesize_approx": f.get("filesize_approx"),
+            }
+            for f in formats
+            if f.get("url")
+        ],
+    }
+
+
+async def _parse_url(url: str) -> dict:
+    if _is_douyin(url):
+        try:
+            return await _douk_parse(url)
+        except Exception as douk_error:
+            try:
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(_executor, _ytdlp_extract, url)
+            except Exception as ytdlp_error:
+                raise RuntimeError(
+                    f"DouK-Downloader 解析失败：{douk_error}；"
+                    f"yt-dlp 兜底失败：{ytdlp_error}"
+                ) from douk_error
+    if _is_tiktok(url):
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(_executor, _tikwm_extract, url)
+        except Exception:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(_executor, _ytdlp_extract, url)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_executor, _ytdlp_extract, url)
+
+
+@router.get("/api/health", include_in_schema=False)
+async def health_check():
+    cookies = load_cookies()
+    return {
+        "ok": True,
+        "yt_dlp": yt_dlp is not None,
+        "ffmpeg": shutil.which("ffmpeg") is not None,
+        "douk_downloader": DOUK_VENDOR.exists(),
+        "douyin_cookie": bool(cookies.get("douyin_cookie")),
+        "tiktok_cookie": bool(cookies.get("tiktok_cookie")),
+        "ytdlp_cookies_file": bool(ytdlp_cookiefile()),
+    }
+
+
+@router.post("/api/parse", include_in_schema=False)
+@router.post("/api/info", include_in_schema=False)
+async def parse_media(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"success": False, "error": "Invalid JSON"}, status_code=400)
+
+    url = (body.get("url") or "").strip()
+    if not url:
+        return JSONResponse({"success": False, "error": "url is required"}, status_code=400)
+
+    cache_key = "parse:" + url
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return JSONResponse(cached)
+
+    try:
+        data = await _parse_url(url)
+    except Exception as e:
+        hint = _friendly_error(url, e)
+        status_code = 502
+        if _YOUTUBE_DOMAINS.search(url) and hint == _YOUTUBE_COOKIE_HELP:
+            status_code = 422
+        elif _is_douyin(url):
+            if not load_cookies().get("douyin_cookie"):
+                hint = "尚未配置抖音 Cookie，请运行 start.bat --reconfigure 后重新填写"
+                status_code = 422
+            elif "Fresh cookies" in hint:
+                hint = (
+                    "当前抖音 Cookie 已过期或未被抖音接受。请关闭服务，运行 "
+                    "start.bat --reconfigure，并粘贴刚从 douyin.com 网络请求中复制的完整 Cookie"
+                )
+                status_code = 422
+        return JSONResponse({"success": False, "error": hint}, status_code=status_code)
+
+    if not data or not (data.get("url") or data.get("images")):
+        return JSONResponse({"success": False, "error": "未找到可播放的视频地址"}, status_code=400)
+
+    result = {"success": True, "data": data}
+    _cache_put(cache_key, result)
+    return JSONResponse(result)
+
+
+@router.post("/api/tkinfo", include_in_schema=False)
+async def parse_tiktok_legacy(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"success": False, "error": "Invalid JSON"}, status_code=400)
+    url = (body.get("url") or "").strip()
+    if not url:
+        return JSONResponse({"success": False, "error": "url is required"}, status_code=400)
+    if not _extract_tiktok_id(url) and not _is_tiktok(url):
+        return JSONResponse({"success": False, "error": "无法提取 TikTok 视频ID"}, status_code=400)
+    try:
+        data = await _parse_url(url)
+    except Exception as e:
+        return JSONResponse({"success": False, "error": f"TikTok 解析失败: {_friendly_error(url, e)}"}, status_code=500)
+    if not data or not data.get("url"):
+        return JSONResponse({"success": False, "error": "未找到视频播放地址"}, status_code=400)
+    return JSONResponse({"success": True, "data": data})
+
+
+@router.post("/api/ytdlp", include_in_schema=False)
+async def parse_with_ytdlp(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"success": False, "error": "Invalid JSON"}, status_code=400)
+    url = (body.get("url") or "").strip()
+    if not url:
+        return JSONResponse({"success": False, "error": "url is required"}, status_code=400)
+    if _is_douyin(url):
+        return JSONResponse({"success": False, "error": "抖音链接请使用 /api/info"}, status_code=400)
+    try:
+        loop = asyncio.get_event_loop()
+        data = await loop.run_in_executor(_executor, _ytdlp_extract, url)
+    except Exception as e:
+        return JSONResponse({"success": False, "error": _friendly_error(url, e)}, status_code=422)
+    if not data or not data.get("url"):
+        return JSONResponse({"success": False, "error": "未找到可播放的视频地址"}, status_code=400)
+    return JSONResponse({"success": True, "data": data})
+
+
+@router.post("/api/download", include_in_schema=False)
+async def download_media(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    url = (body.get("url") or "").strip()
+    if not url:
+        return JSONResponse({"error": "url is required"}, status_code=400)
+    try:
+        data = await _parse_url(url)
+    except Exception as e:
+        return JSONResponse({"error": _friendly_error(url, e)}, status_code=502)
+    video_url = data.get("url") or ""
+    if not video_url:
+        return JSONResponse({"error": "未找到可下载视频地址"}, status_code=400)
+    return await _proxy_stream(video_url, download=True)
+
+
+@router.get("/api/stream", include_in_schema=False)
+@router.head("/api/stream", include_in_schema=False)
+async def stream_media(request: Request, url: Optional[str] = None, download: int = 0):
+    target = (url or request.query_params.get("url") or "").strip()
+    if not target:
+        return JSONResponse({"error": "url is required"}, status_code=400)
+    if not target.startswith("http://") and not target.startswith("https://"):
+        return JSONResponse({"error": "unsupported url"}, status_code=400)
+    return await _proxy_stream(target, download=bool(download))
+
+
+async def _proxy_stream(target: str, download: bool = False):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Encoding": "identity",
+        "Referer": target,
+    }
+
+    def _open():
+        req = urllib.request.Request(target, headers=headers, method="GET")
+        return urllib.request.urlopen(req, timeout=60)
+
+    try:
+        loop = asyncio.get_event_loop()
+        resp = await loop.run_in_executor(_executor, _open)
+    except urllib.error.HTTPError as e:
+        try:
+            payload = e.read()
+        except Exception:
+            payload = b""
+        return Response(status_code=e.code, content=payload, media_type="text/plain")
+    except Exception as e:
+        return JSONResponse({"error": f"stream proxy error: {e}"}, status_code=502)
+
+    media = resp.headers.get("content-type", "video/mp4")
+    out_headers = {}
+    for k in ("Content-Disposition", "Cache-Control", "Accept-Ranges"):
+        v = resp.headers.get(k)
+        if v:
+            out_headers[k] = v
+    if download and "Content-Disposition" not in out_headers:
+        out_headers["Content-Disposition"] = 'attachment; filename="video.mp4"'
+
+    def iter_chunks():
+        try:
+            while True:
+                chunk = resp.read(64 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            resp.close()
+
+    return StreamingResponse(iter_chunks(), media_type=media, headers=out_headers)

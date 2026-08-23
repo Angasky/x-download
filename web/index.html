@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>x-download · 视频解析</title>
+  <style>
+    :root {
+      --bg: #12110f;
+      --panel: #1c1a17;
+      --line: #3a342c;
+      --ink: #f3ece3;
+      --muted: #9a9084;
+      --accent: #e07a3d;
+      --ok: #7dba6f;
+      --bad: #d36b6b;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(1200px 500px at 10% -10%, #2a2118 0%, transparent 55%),
+        var(--bg);
+      color: var(--ink);
+    }
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 48px 20px 80px;
+    }
+    header h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      letter-spacing: 0.04em;
+    }
+    header p { margin: 0; color: var(--muted); }
+    .status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 22px 0 28px;
+    }
+    .pill {
+      font-size: 12px;
+      padding: 4px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+    }
+    .pill.ok { color: var(--ok); border-color: #355534; }
+    .pill.bad { color: var(--bad); border-color: #5a3333; }
+    form {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 12px;
+      border-radius: 14px;
+    }
+    input[type="url"], input[type="text"] {
+      width: 100%;
+      background: transparent;
+      border: 0;
+      color: var(--ink);
+      font-size: 16px;
+      outline: none;
+      padding: 10px 8px;
+    }
+    button {
+      background: var(--accent);
+      color: #1a120c;
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 18px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    .hint { margin-top: 12px; color: var(--muted); font-size: 13px; }
+    .error {
+      margin-top: 18px;
+      padding: 12px 14px;
+      border: 1px solid #5a3333;
+      background: #2a1818;
+      border-radius: 10px;
+      color: #f0c9c9;
+    }
+    .result {
+      margin-top: 28px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .meta { padding: 18px 20px 8px; }
+    .meta h2 { margin: 0 0 6px; font-size: 18px; }
+    .meta .sub { color: var(--muted); font-size: 13px; }
+    .author-card {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      margin: 10px 20px 18px;
+      padding: 14px;
+      background: #171512;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+    .avatar {
+      width: 52px;
+      height: 52px;
+      flex: 0 0 52px;
+      border-radius: 50%;
+      object-fit: cover;
+      background: #27231e;
+    }
+    .author-info { min-width: 0; flex: 1; }
+    .author-name { font-weight: 700; }
+    .author-name a { color: var(--ink); text-decoration: none; }
+    .author-id { margin-top: 3px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+    .author-signature { margin-top: 8px; color: #c6bcb0; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+      gap: 8px;
+      padding: 0 20px 18px;
+    }
+    .stat { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #171512; }
+    .stat strong { display: block; font-size: 17px; color: var(--ink); }
+    .stat span { color: var(--muted); font-size: 12px; }
+    .caption { margin: 0 20px 18px; color: #d8cec2; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .caption-label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 12px; }
+    video, img.cover {
+      width: 100%;
+      max-height: 520px;
+      background: #000;
+      display: block;
+    }
+    .quality-picker {
+      display: block;
+      padding: 14px 20px 0;
+    }
+    .quality-picker .quality-title { display: block; margin-bottom: 8px; color: var(--muted); font-size: 13px; }
+    .quality-buttons { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+    .quality-option {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 3px;
+      color: var(--ink);
+      background: #171512;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 12px;
+      font-weight: 600;
+    }
+    .quality-option:hover { border-color: #72543c; }
+    .quality-option.active { color: #1a120c; background: var(--accent); border-color: var(--accent); }
+    .quality-option > span { font-size: 15px; }
+    .quality-option small { color: var(--muted); font-size: 11px; font-weight: 500; }
+    .quality-option.active small { color: #4b2a17; }
+    @media (max-width: 520px) {
+      .quality-buttons { grid-template-columns: 1fr; }
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      padding: 16px 20px 20px;
+      flex-wrap: wrap;
+    }
+    .actions a {
+      color: #1a120c;
+      background: var(--ink);
+      text-decoration: none;
+      padding: 9px 14px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .actions a.ghost {
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 8px;
+      padding: 0 20px 20px;
+    }
+    .gallery img { width: 100%; border-radius: 8px; }
+    footer { margin-top: 40px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>x-download</h1>
+      <p>粘贴抖音 / TikTok / YouTube / Bilibili / X 等链接，解析无水印直链。</p>
+    </header>
+    <div class="status" id="status"></div>
+    <form id="form">
+      <input id="url" type="url" placeholder="https://v.douyin.com/..." required autocomplete="off" />
+      <button type="submit" id="go">解析</button>
+    </form>
+    <p class="hint">抖音需要在启动时配置网页 Cookie。首次运行请用 start.bat / start.sh。</p>
+    <div id="msg"></div>
+    <section class="result" id="result" hidden></section>
+    <footer>
+      抖音解析使用 JoeanAmier/TikTokDownloader（DouK-Downloader），其他平台使用 tikwm / yt-dlp。仅供个人学习与备份自己有权使用的内容。
+    </footer>
+  </main>
+  <script>
+    const statusEl = document.getElementById("status");
+    const form = document.getElementById("form");
+    const urlEl = document.getElementById("url");
+    const go = document.getElementById("go");
+    const msg = document.getElementById("msg");
+    const result = document.getElementById("result");
+    let parsing = false;
+
+    function pill(text, cls) {
+      const s = document.createElement("span");
+      s.className = "pill " + (cls || "");
+      s.textContent = text;
+      return s;
+    }
+
+    async function loadHealth() {
+      try {
+        const r = await fetch("/api/health");
+        const h = await r.json();
+        statusEl.innerHTML = "";
+        statusEl.append(
+          pill(h.douk_downloader ? "DouK-Downloader 已安装" : "DouK-Downloader 缺失", h.douk_downloader ? "ok" : "bad"),
+          pill(h.yt_dlp ? "yt-dlp 就绪" : "yt-dlp 未安装", h.yt_dlp ? "ok" : "bad"),
+          pill(h.douyin_cookie ? "抖音 Cookie 已配置" : "未配置抖音 Cookie", h.douyin_cookie ? "ok" : "bad"),
+          pill(h.tiktok_cookie ? "TikTok Cookie" : "TikTok Cookie 可选", h.tiktok_cookie ? "ok" : ""),
+          pill(h.ytdlp_cookies_file ? "yt-dlp cookies" : "yt-dlp cookies 可选", h.ytdlp_cookies_file ? "ok" : ""),
+          pill(h.ffmpeg ? "ffmpeg" : "无 ffmpeg", h.ffmpeg ? "ok" : "")
+        );
+      } catch {
+        statusEl.innerHTML = "";
+        statusEl.append(pill("后端未启动", "bad"));
+      }
+    }
+
+    function streamUrl(u, download) {
+      const q = "/api/stream?url=" + encodeURIComponent(u);
+      return download ? q + "&download=1" : q;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (parsing) return;
+      parsing = true;
+      msg.innerHTML = "";
+      result.hidden = true;
+      go.disabled = true;
+      go.textContent = "解析中";
+      try {
+        const r = await fetch("/api/parse", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: urlEl.value.trim() }),
+        });
+        const data = await r.json();
+        if (!data.success) throw new Error(data.error || "解析失败");
+        render(data.data);
+      } catch (err) {
+        msg.innerHTML = '<div class="error">' + (err.message || err) + "</div>";
+      } finally {
+        parsing = false;
+        go.disabled = false;
+        go.textContent = "解析";
+      }
+    });
+
+    function render(d) {
+      const title = d.title || d.desc || "未命名";
+      const play = d.url || "";
+      const images = d.images || [];
+      const isTikTok = String(d.platform || "").toLowerCase().includes("tiktok");
+      const avatar = d.avatar || "";
+      const profile = d.profile_url || "";
+      const authorName = d.uploader || "未知作者";
+      const authorLinkStart = profile ? '<a href="' + escapeHtml(profile) + '" target="_blank" rel="noreferrer">' : "";
+      const authorLinkEnd = profile ? "</a>" : "";
+      const identifiers = [d.unique_id ? "@" + d.unique_id : "", d.uid ? "UID: " + d.uid : ""].filter(Boolean).join(" · ");
+      const authorCard = (d.uploader || d.unique_id || d.uid || avatar || d.author_signature)
+        ? '<div class="author-card">' +
+          (avatar ? '<img class="avatar" src="' + escapeHtml(avatar) + '" alt="作者头像" referrerpolicy="no-referrer" />' : "") +
+          '<div class="author-info"><div class="author-name">' + authorLinkStart + escapeHtml(authorName) + authorLinkEnd + "</div>" +
+          (identifiers ? '<div class="author-id">' + escapeHtml(identifiers) + "</div>" : "") +
+          (d.author_signature ? '<div class="author-signature"><span class="caption-label">主页简介</span>' + escapeHtml(d.author_signature) + "</div>" : "") +
+          "</div></div>"
+        : "";
+      const statSource = [
+        ...(isTikTok ? [["播放", d.play_count]] : []),
+        ["点赞", d.digg_count],
+        ["评论", d.comment_count],
+        ["收藏", d.collect_count],
+        ["分享", d.share_count],
+      ];
+      const stats = statSource
+        .filter(([, value]) => value !== null && value !== undefined && value !== "")
+        .map(([label, value]) => '<div class="stat"><strong title="' + escapeHtml(value) + '">' + formatCount(value) + '</strong><span>' + label + "</span></div>")
+        .join("");
+      const caption = d.desc
+        ? '<div class="caption"><span class="caption-label">视频文案</span>' + escapeHtml(d.desc) + "</div>"
+        : "";
+      const formats = normalizeFormats(d.formats, play, d.duration, d.platform);
+      const selectedPlay = formats[0]?.url || play;
+      const media = images.length
+        ? '<div class="gallery">' + images.map((u) => '<img src="' + escapeHtml(u) + '" alt="" referrerpolicy="no-referrer" />').join("") + "</div>"
+        : selectedPlay
+          ? '<video id="preview-video" controls playsinline src="' + escapeHtml(streamUrl(selectedPlay)) + '" poster="' + escapeHtml(d.thumbnail || "") + '"></video>'
+          : (d.thumbnail ? '<img class="cover" src="' + escapeHtml(d.thumbnail) + '" alt="" referrerpolicy="no-referrer" />' : "");
+      const qualityPicker = formats.length > 0
+        ? '<div class="quality-picker"><span class="quality-title">选择分辨率 / 清晰度</span><div class="quality-buttons">' +
+          formats.map((format, index) =>
+            '<button type="button" class="quality-option' + (index === 0 ? " active" : "") + '" data-quality-index="' + index + '">' +
+            '<span>' + escapeHtml(format.label) + '</span><small>' + escapeHtml(format.detailsLabel) + "</small></button>"
+          ).join("") + "</div></div>"
+        : "";
+      const dl = selectedPlay
+        ? '<a id="download-selected" href="' + escapeHtml(streamUrl(selectedPlay, true)) + '">下载视频</a>'
+        : "";
+      const raw = selectedPlay ? '<a id="raw-selected" class="ghost" href="' + escapeHtml(selectedPlay) + '" target="_blank" rel="noreferrer">直链</a>' : "";
+      result.innerHTML =
+        '<div class="meta"><h2>' + escapeHtml(title) + "</h2>" +
+        '<div class="sub">' + escapeHtml(d.platform || "") + "</div></div>" +
+        authorCard + (stats ? '<div class="stats">' + stats + "</div>" : "") + caption +
+        media + qualityPicker + '<div class="actions">' + dl + raw + "</div>";
+      result.hidden = false;
+
+      const qualityButtons = result.querySelectorAll("[data-quality-index]");
+      qualityButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const selected = formats[Number(button.dataset.qualityIndex)];
+          if (!selected) return;
+          qualityButtons.forEach((item) => item.classList.toggle("active", item === button));
+          const video = document.getElementById("preview-video");
+          const download = document.getElementById("download-selected");
+          const direct = document.getElementById("raw-selected");
+          if (video) {
+            video.pause();
+            video.src = streamUrl(selected.url);
+            video.load();
+          }
+          if (download) download.href = streamUrl(selected.url, true);
+          if (direct) direct.href = selected.url;
+        });
+      });
+    }
+
+    function normalizeFormats(source, fallbackUrl, duration, platform) {
+      const seen = new Set();
+      const grouped = new Map();
+      for (const item of Array.isArray(source) ? source : []) {
+        if (!item || !item.url || item.quality === "image" || item.vcodec === "none" || seen.has(item.url)) continue;
+        seen.add(item.url);
+        const key = formatGroupKey(item);
+        const current = grouped.get(key);
+        if (!current || isBetterFormat(item, current)) grouped.set(key, item);
+      }
+      const formats = Array.from(grouped.values()).map((item) => {
+        const sizeLabel = formatSize(item, duration, platform);
+        const dimensions = item.width || item.height
+          ? [item.width, item.height].filter(Boolean).join(" × ")
+          : "";
+        return {
+          ...item,
+          label: formatLabel(item),
+          sizeLabel,
+          detailsLabel: [dimensions, sizeLabel].filter(Boolean).join(" · "),
+        };
+      });
+      formats.sort((a, b) => formatScore(b) - formatScore(a));
+      const recommended = formats.findIndex((item) => item.url === fallbackUrl);
+      if (recommended > 0) formats.unshift(formats.splice(recommended, 1)[0]);
+      if (fallbackUrl && !seen.has(fallbackUrl)) {
+        formats.unshift({ url: fallbackUrl, label: "推荐清晰度", sizeLabel: "大小未知", detailsLabel: "大小未知" });
+      }
+      return formats;
+    }
+
+    function formatLabel(format) {
+      const dimensions = [Number(format.width) || 0, Number(format.height) || 0].filter(Boolean);
+      const parts = dimensions.length ? [Math.min(...dimensions) + "P"] : [];
+      if (!dimensions.length && format.quality && format.quality !== "default") parts.push(format.quality);
+      if (format.fps) parts.push(format.fps + " FPS");
+      if (format.acodec === "none") parts.push("仅视频");
+      return parts.join(" · ") || "默认清晰度";
+    }
+
+    function formatGroupKey(format) {
+      const width = Number(format.width) || 0;
+      const height = Number(format.height) || 0;
+      if (width || height) return "resolution:" + [width, height].sort((a, b) => a - b).join("x");
+      return "quality:" + (format.quality || format.url);
+    }
+
+    function isBetterFormat(candidate, current) {
+      const candidateScore = formatPreference(candidate);
+      const currentScore = formatPreference(current);
+      for (let index = 0; index < candidateScore.length; index += 1) {
+        if (candidateScore[index] !== currentScore[index]) return candidateScore[index] > currentScore[index];
+      }
+      return false;
+    }
+
+    function formatPreference(format) {
+      const hasAudio = format.acodec === "none" ? 0 : 1;
+      const bytes = Number(format.filesize) || Number(format.filesize_approx) || 0;
+      return [hasAudio, Number(format.fps) || 0, bytes, Number(format.tbr) || 0];
+    }
+
+    function formatScore(format) {
+      return Math.max(Number(format.width) || 0, Number(format.height) || 0) * 1000000 + (Number(format.tbr) || 0);
+    }
+
+    function formatSize(format, duration, platform) {
+      const exact = Number(format.filesize);
+      if (Number.isFinite(exact) && exact > 0) return formatBytes(exact);
+      let estimated = Number(format.filesize_approx);
+      if (!(Number.isFinite(estimated) && estimated > 0)) {
+        const bitRate = Number(format.tbr);
+        const seconds = Number(duration);
+        if (Number.isFinite(bitRate) && bitRate > 0 && Number.isFinite(seconds) && seconds > 0) {
+          const bitsPerSecond = String(platform || "").toLowerCase().includes("douyin") || bitRate > 100000
+            ? bitRate
+            : bitRate * 1000;
+          estimated = bitsPerSecond * seconds / 8;
+        }
+      }
+      return Number.isFinite(estimated) && estimated > 0 ? "约 " + formatBytes(estimated) : "大小未知";
+    }
+
+    function formatBytes(bytes) {
+      if (bytes >= 1024 ** 3) return (bytes / 1024 ** 3).toFixed(2).replace(/\.00$/, "") + " GB";
+      if (bytes >= 1024 ** 2) return (bytes / 1024 ** 2).toFixed(1).replace(/\.0$/, "") + " MB";
+      if (bytes >= 1024) return (bytes / 1024).toFixed(1).replace(/\.0$/, "") + " KB";
+      return Math.round(bytes) + " B";
+    }
+
+    function formatCount(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return escapeHtml(value);
+      if (number >= 100000000) return (number / 100000000).toFixed(number >= 1000000000 ? 0 : 1).replace(/\.0$/, "") + "亿";
+      if (number >= 10000) return (number / 10000).toFixed(number >= 100000 ? 0 : 1).replace(/\.0$/, "") + "万";
+      return new Intl.NumberFormat("zh-CN").format(number);
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[c]));
+    }
+
+    loadHealth();
+  </script>
+</body>
+</html>
