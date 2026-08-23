@@ -254,6 +254,44 @@
     .actions a:hover { transform: translateY(-1px); filter: brightness(0.92); }
     .actions a.primary { background: linear-gradient(135deg, var(--accent), #6e59ef); color: white; }
     .actions a.ghost { border: 1px solid var(--line-strong); background: transparent; color: #c6cad4; }
+    .download-progress {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      z-index: 20;
+      width: min(350px, calc(100vw - 32px));
+      padding: 18px;
+      border: 1px solid rgba(139, 120, 255, 0.35);
+      border-radius: 16px;
+      background: rgba(18, 21, 31, 0.96);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(20px);
+      animation: progress-in 0.28s ease both;
+    }
+    .download-progress[hidden] { display: none; }
+    @keyframes progress-in { from { opacity: 0; transform: translateX(12px); } }
+    .progress-head { display: flex; align-items: center; gap: 11px; }
+    .progress-symbol { display: grid; width: 36px; height: 36px; flex: 0 0 36px; place-items: center; border-radius: 11px; background: var(--accent-soft); color: var(--accent-strong); font-size: 18px; }
+    .download-progress.active .progress-symbol { animation: progress-pulse 1.4s ease-in-out infinite; }
+    @keyframes progress-pulse { 50% { box-shadow: 0 0 0 7px rgba(139, 120, 255, 0.08); } }
+    .progress-copy { min-width: 0; flex: 1; }
+    .progress-copy strong { display: block; font-size: 14px; }
+    .progress-copy span { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .progress-close { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 8px; background: transparent; color: var(--muted); font-size: 18px; }
+    .progress-close:hover { background: rgba(255, 255, 255, 0.06); color: var(--ink); }
+    .progress-track { height: 7px; margin-top: 16px; border-radius: 999px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
+    .progress-fill { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), #64dfbf); transition: width 0.35s ease; }
+    .progress-summary { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 10px; }
+    .progress-percent { font-size: 24px; font-weight: 800; letter-spacing: -0.04em; }
+    .progress-size { color: var(--muted); font-size: 11px; }
+    .progress-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    .progress-metric { padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255, 255, 255, 0.025); }
+    .progress-metric span { display: block; color: var(--muted); font-size: 9px; }
+    .progress-metric strong { display: block; margin-top: 3px; font-size: 12px; }
+    .download-progress.error { border-color: rgba(255, 123, 137, 0.35); }
+    .download-progress.error .progress-symbol { color: var(--bad); background: rgba(255, 123, 137, 0.1); }
+    .progress-error { margin: 12px 0 0; color: #ffc1c8; font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
+    .progress-error:empty { display: none; }
     footer { display: flex; justify-content: space-between; gap: 24px; margin-top: 28px; color: #696f7e; font-size: 11px; line-height: 1.7; }
     footer a { color: #9299aa; text-decoration: none; }
     footer a:hover { color: var(--ink); }
@@ -278,6 +316,8 @@
       .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .quality-buttons { grid-template-columns: 1fr; }
       .actions a { flex: 1 1 100%; }
+      .download-progress { top: auto; right: 10px; bottom: 10px; left: 10px; width: auto; padding: 15px; }
+      @keyframes progress-in { from { opacity: 0; transform: translateY(12px); } }
       footer { flex-direction: column; gap: 8px; }
     }
   </style>
@@ -305,6 +345,28 @@
     </section>
     <div id="msg"></div>
     <section class="result" id="result" hidden></section>
+    <aside class="download-progress" id="download-progress" aria-live="polite" hidden>
+      <div class="progress-head">
+        <span class="progress-symbol" id="progress-symbol" aria-hidden="true">↓</span>
+        <div class="progress-copy">
+          <strong id="progress-title">正在准备下载</strong>
+          <span id="progress-phase">正在创建下载任务</span>
+        </div>
+        <button class="progress-close" id="progress-close" type="button" aria-label="收起下载进度">×</button>
+      </div>
+      <div class="progress-track" role="progressbar" aria-label="下载进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <span class="progress-fill" id="progress-fill"></span>
+      </div>
+      <div class="progress-summary">
+        <strong class="progress-percent" id="progress-percent">0%</strong>
+        <span class="progress-size" id="progress-size">正在计算文件大小</span>
+      </div>
+      <div class="progress-metrics">
+        <div class="progress-metric"><span>当前速度</span><strong id="progress-speed">—</strong></div>
+        <div class="progress-metric"><span>预计剩余</span><strong id="progress-eta">—</strong></div>
+      </div>
+      <p class="progress-error" id="progress-error"></p>
+    </aside>
     <footer>
       <span>请仅下载和使用你拥有权利的内容。</span>
       <span>Powered by DouK-Downloader · tikwm · yt-dlp</span>
@@ -317,6 +379,20 @@
     const go = document.getElementById("go");
     const msg = document.getElementById("msg");
     const result = document.getElementById("result");
+    const progressPanel = document.getElementById("download-progress");
+    const progressTitle = document.getElementById("progress-title");
+    const progressPhase = document.getElementById("progress-phase");
+    const progressSymbol = document.getElementById("progress-symbol");
+    const progressFill = document.getElementById("progress-fill");
+    const progressPercent = document.getElementById("progress-percent");
+    const progressSize = document.getElementById("progress-size");
+    const progressSpeed = document.getElementById("progress-speed");
+    const progressEta = document.getElementById("progress-eta");
+    const progressError = document.getElementById("progress-error");
+    const progressTrack = progressPanel.querySelector("[role=progressbar]");
+    let activeDownloadJob = "";
+    let activeDownloadState = "";
+    let progressTimer = null;
     let parsing = false;
 
     function pill(text, cls) {
@@ -355,7 +431,7 @@
     }
 
     function downloadUrl(source, format) {
-      if (source && format?.format_id && format.acodec === "none") {
+      if (needsProgressDownload(source, format)) {
         const params = new URLSearchParams({
           url: source,
           format_id: format.format_id,
@@ -364,6 +440,125 @@
         return "/api/ytdlp-download?" + params.toString();
       }
       return streamUrl(format?.url || "", true, format);
+    }
+
+    function needsProgressDownload(source, format) {
+      return Boolean(source && format?.format_id && format.acodec === "none");
+    }
+
+    document.getElementById("progress-close").addEventListener("click", () => {
+      progressPanel.hidden = true;
+    });
+
+    async function startProgressDownload(source, format) {
+      if (activeDownloadJob && ["queued", "downloading", "merging"].includes(activeDownloadState)) {
+        progressPanel.hidden = false;
+        return;
+      }
+      if (progressTimer) clearTimeout(progressTimer);
+      activeDownloadJob = "";
+      activeDownloadState = "queued";
+      progressPanel.hidden = false;
+      progressPanel.className = "download-progress active";
+      progressTitle.textContent = "正在准备下载";
+      progressPhase.textContent = "正在创建音视频合并任务";
+      progressSymbol.textContent = "↓";
+      progressFill.style.width = "0%";
+      progressPercent.textContent = "0%";
+      progressSize.textContent = format.sizeLabel || "正在计算文件大小";
+      progressSpeed.textContent = "—";
+      progressEta.textContent = "—";
+      progressError.textContent = "";
+      progressTrack.setAttribute("aria-valuenow", "0");
+      try {
+        const response = await fetch("/api/download-jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: source, format_id: format.format_id, merge_audio: true }),
+        });
+        const job = await response.json();
+        if (!response.ok || !job.job_id) throw new Error(job.error || "无法创建下载任务");
+        activeDownloadJob = job.job_id;
+        renderDownloadProgress(job);
+        scheduleProgressPoll(250);
+      } catch (error) {
+        showProgressError(error.message || error);
+      }
+    }
+
+    function scheduleProgressPoll(delay) {
+      if (progressTimer) clearTimeout(progressTimer);
+      progressTimer = setTimeout(pollDownloadProgress, delay);
+    }
+
+    async function pollDownloadProgress() {
+      if (!activeDownloadJob) return;
+      try {
+        const response = await fetch("/api/download-jobs/" + encodeURIComponent(activeDownloadJob), { cache: "no-store" });
+        const job = await response.json();
+        if (!response.ok) throw new Error(job.error || "无法读取下载进度");
+        renderDownloadProgress(job);
+        if (job.status === "ready" && job.download_url) {
+          const fileLink = document.createElement("a");
+          fileLink.href = job.download_url;
+          fileLink.style.display = "none";
+          document.body.appendChild(fileLink);
+          fileLink.click();
+          fileLink.remove();
+          activeDownloadJob = "";
+          return;
+        }
+        if (job.status === "error") {
+          showProgressError(job.error || "下载处理失败");
+          activeDownloadJob = "";
+          return;
+        }
+        scheduleProgressPoll(500);
+      } catch (error) {
+        showProgressError(error.message || error);
+        activeDownloadJob = "";
+      }
+    }
+
+    function renderDownloadProgress(job) {
+      const percent = Math.max(0, Math.min(100, Number(job.percent) || 0));
+      activeDownloadState = job.status || "queued";
+      progressPanel.hidden = false;
+      progressPanel.className = "download-progress " + (job.status === "ready" ? "complete" : "active");
+      progressTitle.textContent = job.status === "ready" ? "文件已经准备完成" : "正在处理所选清晰度";
+      progressPhase.textContent = job.phase || "正在处理";
+      progressSymbol.textContent = job.status === "ready" ? "✓" : "↓";
+      progressFill.style.width = percent + "%";
+      progressPercent.textContent = Math.round(percent) + "%";
+      progressTrack.setAttribute("aria-valuenow", String(Math.round(percent)));
+      const downloaded = Number(job.downloaded_bytes) || 0;
+      const total = Number(job.total_bytes) || 0;
+      progressSize.textContent = total
+        ? formatBytes(downloaded) + " / " + formatBytes(total)
+        : (downloaded ? "已下载 " + formatBytes(downloaded) : "正在计算文件大小");
+      progressSpeed.textContent = job.speed ? formatBytes(job.speed) + "/s" : "—";
+      progressEta.textContent = formatEta(job.eta);
+      progressError.textContent = "";
+    }
+
+    function showProgressError(message) {
+      if (progressTimer) clearTimeout(progressTimer);
+      activeDownloadState = "error";
+      progressPanel.hidden = false;
+      progressPanel.className = "download-progress error";
+      progressTitle.textContent = "下载没有完成";
+      progressPhase.textContent = "请检查服务状态后重试";
+      progressSymbol.textContent = "!";
+      progressSpeed.textContent = "—";
+      progressEta.textContent = "—";
+      progressError.textContent = String(message || "未知错误");
+    }
+
+    function formatEta(value) {
+      const seconds = Math.max(0, Math.round(Number(value)));
+      if (!Number.isFinite(seconds) || !seconds) return "—";
+      if (seconds < 60) return seconds + " 秒";
+      return Math.floor(seconds / 60) + " 分 " + (seconds % 60) + " 秒";
     }
 
     form.addEventListener("submit", async (e) => {
@@ -429,6 +624,7 @@
         ? '<div class="caption"><span class="caption-label">作品文案</span>' + escapeHtml(d.desc) + "</div>"
         : "";
       const formats = normalizeFormats(d.formats, play, d.duration, d.platform, d.http_headers);
+      let selectedFormat = formats[0];
       const selectedPlay = formats[0]?.url || play;
       const media = images.length
         ? '<div class="gallery">' + images.map((u) => '<img src="' + escapeHtml(u) + '" alt="" referrerpolicy="no-referrer" />').join("") + "</div>"
@@ -455,11 +651,21 @@
         '<div class="download-panel">' + qualityPicker + '<div class="actions">' + dl + raw + "</div></div>";
       result.hidden = false;
 
+      const selectedDownload = document.getElementById("download-selected");
+      if (selectedDownload) {
+        selectedDownload.addEventListener("click", (event) => {
+          if (!needsProgressDownload(d.source, selectedFormat)) return;
+          event.preventDefault();
+          startProgressDownload(d.source, selectedFormat);
+        });
+      }
+
       const qualityButtons = result.querySelectorAll("[data-quality-index]");
       qualityButtons.forEach((button) => {
         button.addEventListener("click", () => {
           const selected = formats[Number(button.dataset.qualityIndex)];
           if (!selected) return;
+          selectedFormat = selected;
           qualityButtons.forEach((item) => item.classList.toggle("active", item === button));
           const video = document.getElementById("preview-video");
           const download = document.getElementById("download-selected");

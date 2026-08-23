@@ -9,12 +9,14 @@ import mimetypes
 import re
 import shutil
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
@@ -29,6 +31,10 @@ router = APIRouter()
 _CACHE_TTL = 120.0
 _cache: dict[str, tuple[Any, float]] = {}
 _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+_download_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+_DOWNLOAD_JOB_TTL = 60 * 60
+_download_jobs: dict[str, dict[str, Any]] = {}
+_download_jobs_lock = threading.Lock()
 
 try:
     import yt_dlp  # noqa: F401
@@ -898,15 +904,75 @@ def _download_ytdlp_file(
     format_id: str,
     merge_audio: bool,
     directory: Path,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> Path:
     if yt_dlp is None:
         raise RuntimeError("yt-dlp 未安装，请重新运行一键启动脚本")
     if merge_audio and not shutil.which("ffmpeg"):
         raise RuntimeError("该清晰度需要合并音频，请先安装 ffmpeg")
     selector = f"{format_id}+bestaudio/{format_id}" if merge_audio else format_id
+    completed_tracks = 0
+
+    def progress_hook(status: dict[str, Any]) -> None:
+        nonlocal completed_tracks
+        if progress_callback is None:
+            return
+        state = status.get("status")
+        if state == "downloading":
+            downloaded = int(status.get("downloaded_bytes") or 0)
+            total = int(status.get("total_bytes") or status.get("total_bytes_estimate") or 0)
+            ratio = min(downloaded / total, 1.0) if total else 0.0
+            if merge_audio:
+                if completed_tracks == 0:
+                    percent = ratio * 70
+                    phase = "正在下载视频轨"
+                else:
+                    percent = 70 + ratio * 20
+                    phase = "正在下载音频轨"
+            else:
+                percent = ratio * 95
+                phase = "正在下载视频"
+            progress_callback(
+                {
+                    "status": "downloading",
+                    "phase": phase,
+                    "percent": round(percent, 1),
+                    "downloaded_bytes": downloaded,
+                    "total_bytes": total,
+                    "speed": status.get("speed"),
+                    "eta": status.get("eta"),
+                }
+            )
+        elif state == "finished":
+            completed_tracks += 1
+            progress_callback(
+                {
+                    "status": "merging" if merge_audio and completed_tracks >= 2 else "downloading",
+                    "phase": "正在合并音频与视频" if merge_audio and completed_tracks >= 2 else "正在准备音频轨",
+                    "percent": 94 if merge_audio and completed_tracks >= 2 else 70,
+                    "speed": None,
+                    "eta": None,
+                }
+            )
+
+    def postprocessor_hook(status: dict[str, Any]) -> None:
+        if progress_callback is None or not merge_audio:
+            return
+        if status.get("status") in {"started", "processing"}:
+            progress_callback(
+                {
+                    "status": "merging",
+                    "phase": "正在合并音频与视频",
+                    "percent": 96,
+                    "speed": None,
+                    "eta": None,
+                }
+            )
+
     options = {
         "quiet": True,
         "no_warnings": True,
+        "noprogress": True,
         "nocolor": True,
         "format": selector,
         "outtmpl": str(directory / "%(title).120B [%(id)s].%(ext)s"),
@@ -914,6 +980,8 @@ def _download_ytdlp_file(
         "socket_timeout": 30,
         "nocheckcertificate": True,
         "windowsfilenames": True,
+        "progress_hooks": [progress_hook],
+        "postprocessor_hooks": [postprocessor_hook],
     }
     if cookiefile := ytdlp_cookiefile():
         options["cookiefile"] = cookiefile
@@ -957,4 +1025,179 @@ async def _prepare_ytdlp_download(
         media_type=media_type,
         filename=output.name,
         background=BackgroundTask(shutil.rmtree, directory, ignore_errors=True),
+    )
+
+
+def _update_download_job(job_id: str, **changes: Any) -> None:
+    with _download_jobs_lock:
+        job = _download_jobs.get(job_id)
+        if not job:
+            return
+        job.update(changes)
+        job["updated_at"] = time.time()
+
+
+def _public_download_job(job_id: str) -> dict[str, Any] | None:
+    with _download_jobs_lock:
+        job = _download_jobs.get(job_id)
+        if not job:
+            return None
+        return {
+            "job_id": job_id,
+            "status": job.get("status"),
+            "phase": job.get("phase"),
+            "percent": job.get("percent", 0),
+            "downloaded_bytes": job.get("downloaded_bytes", 0),
+            "total_bytes": job.get("total_bytes", 0),
+            "speed": job.get("speed"),
+            "eta": job.get("eta"),
+            "filename": job.get("filename") or "",
+            "error": job.get("error") or "",
+            "download_url": f"/api/download-jobs/{job_id}/file"
+            if job.get("status") == "ready"
+            else "",
+        }
+
+
+def _remove_download_job(job_id: str) -> None:
+    with _download_jobs_lock:
+        job = _download_jobs.pop(job_id, None)
+    if job and job.get("directory"):
+        shutil.rmtree(job["directory"], ignore_errors=True)
+
+
+def _cleanup_download_jobs() -> None:
+    cutoff = time.time() - _DOWNLOAD_JOB_TTL
+    with _download_jobs_lock:
+        expired = [
+            job_id
+            for job_id, job in _download_jobs.items()
+            if job.get("status") in {"ready", "error"}
+            and job.get("updated_at", 0) < cutoff
+        ]
+    for job_id in expired:
+        _remove_download_job(job_id)
+
+
+def _run_download_job(job_id: str) -> None:
+    with _download_jobs_lock:
+        job = _download_jobs.get(job_id)
+        if not job:
+            return
+        source = job["source"]
+        format_id = job["format_id"]
+        merge_audio = job["merge_audio"]
+        directory = Path(job["directory"])
+    _update_download_job(
+        job_id,
+        status="downloading",
+        phase="正在连接媒体服务器",
+        percent=1,
+    )
+    try:
+        output = _download_ytdlp_file(
+            source,
+            format_id,
+            merge_audio,
+            directory,
+            lambda progress: _update_download_job(job_id, **progress),
+        )
+        size = output.stat().st_size
+        _update_download_job(
+            job_id,
+            status="ready",
+            phase="处理完成，正在开始下载",
+            percent=100,
+            downloaded_bytes=size,
+            total_bytes=size,
+            speed=None,
+            eta=0,
+            output=str(output),
+            filename=output.name,
+        )
+    except Exception as error:
+        shutil.rmtree(directory, ignore_errors=True)
+        _update_download_job(
+            job_id,
+            status="error",
+            phase="下载处理失败",
+            error=_friendly_error(source, error),
+            speed=None,
+            eta=None,
+        )
+
+
+@router.post("/api/download-jobs", include_in_schema=False)
+async def create_download_job(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    source = str(body.get("url") or "").strip()
+    format_id = str(body.get("format_id") or "").strip()
+    merge_audio = bool(body.get("merge_audio", True))
+    if not source.startswith(("http://", "https://")):
+        return JSONResponse({"error": "unsupported url"}, status_code=400)
+    if not format_id or not re.fullmatch(r"[0-9A-Za-z_.-]+", format_id):
+        return JSONResponse({"error": "invalid format_id"}, status_code=400)
+
+    _cleanup_download_jobs()
+    with _download_jobs_lock:
+        active_jobs = sum(
+            job.get("status") in {"queued", "downloading", "merging"}
+            for job in _download_jobs.values()
+        )
+    if active_jobs >= 4:
+        return JSONResponse(
+            {"error": "当前下载任务较多，请等待已有任务完成后重试"},
+            status_code=429,
+        )
+    job_id = uuid.uuid4().hex
+    directory = Path(tempfile.mkdtemp(prefix="x-download-job-"))
+    now = time.time()
+    with _download_jobs_lock:
+        _download_jobs[job_id] = {
+            "source": source,
+            "format_id": format_id,
+            "merge_audio": merge_audio,
+            "directory": str(directory),
+            "status": "queued",
+            "phase": "正在排队",
+            "percent": 0,
+            "downloaded_bytes": 0,
+            "total_bytes": 0,
+            "speed": None,
+            "eta": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+    _download_executor.submit(_run_download_job, job_id)
+    return JSONResponse(_public_download_job(job_id), status_code=202)
+
+
+@router.get("/api/download-jobs/{job_id}", include_in_schema=False)
+async def get_download_job(job_id: str):
+    _cleanup_download_jobs()
+    job = _public_download_job(job_id)
+    if not job:
+        return JSONResponse({"error": "download job not found"}, status_code=404)
+    return JSONResponse(job)
+
+
+@router.get("/api/download-jobs/{job_id}/file", include_in_schema=False)
+async def get_download_job_file(job_id: str):
+    with _download_jobs_lock:
+        job = _download_jobs.get(job_id)
+        status = job.get("status") if job else None
+        output = Path(job["output"]) if job and job.get("output") else None
+    if not job:
+        return JSONResponse({"error": "download job not found"}, status_code=404)
+    if status != "ready" or not output or not output.is_file():
+        return JSONResponse({"error": "download is not ready"}, status_code=409)
+    media_type = mimetypes.guess_type(output.name)[0] or "application/octet-stream"
+    return FileResponse(
+        output,
+        media_type=media_type,
+        filename=output.name,
+        background=BackgroundTask(_remove_download_job, job_id),
     )

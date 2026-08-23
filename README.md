@@ -32,6 +32,7 @@
 | 👤 | 完整作品信息 | 作者头像、名称、账号 ID、UID、主页、简介、视频文案和互动数据 |
 | 🎚️ | 清晰度按钮 | 同分辨率重复档位自动合并，保留综合质量更合适的版本 |
 | 📦 | 文件大小 | 优先显示精确大小，也可根据码率和时长显示估算值 |
+| 📊 | 实时下载进度 | 分轨下载时展示百分比、速度、剩余时间与音视频合并状态 |
 | ▶️ | 本地预览 | 清晰度按钮会同步更新预览、下载地址和媒体直链 |
 | 🖼️ | 图集支持 | 自动识别并展示抖音图集作品 |
 | 🔐 | Cookie 支持 | 支持抖音/TikTok 请求 Cookie 和 yt-dlp Netscape Cookie 文件 |
@@ -272,6 +273,9 @@ Content-Type: application/json
 | `GET` | `/api/stream?url=...` | 代理预览媒体 |
 | `GET` | `/api/stream?url=...&download=1` | 代理下载媒体 |
 | `GET` | `/api/ytdlp-download?url=...&format_id=...&merge_audio=1` | 下载指定清晰度并合并音频 |
+| `POST` | `/api/download-jobs` | 创建带实时进度的音视频合并任务 |
+| `GET` | `/api/download-jobs/{job_id}` | 查询下载与合并进度 |
+| `GET` | `/api/download-jobs/{job_id}/file` | 获取处理完成的文件 |
 | `GET` | `/api/health` | 检查依赖、ffmpeg、DouK 与 Cookie |
 
 <details>
@@ -343,7 +347,7 @@ start.sh              macOS / Linux 入口
 <details>
 <summary><b>哔哩哔哩能显示信息，但视频不能播放或下载</b></summary>
 
-哔哩哔哩的视频地址需要正确的 `Referer`，并且常以 DASH 形式分别提供视频轨和音频轨。x-download 会保留 yt-dlp 提取的安全请求头、转发 Range 请求，并在下载所选清晰度时自动调用 ffmpeg 合并音视频。请确认健康检查中的 ffmpeg 状态为可用。
+哔哩哔哩的视频地址需要正确的 `Referer`，并且常以 DASH 形式分别提供视频轨和音频轨。x-download 会保留 yt-dlp 提取的安全请求头、转发 Range 请求，并在下载所选清晰度时自动调用 ffmpeg 合并音视频。处理期间网页右侧会显示实时下载与合并进度；请确认健康检查中的 ffmpeg 状态为可用。
 
 </details>
 
