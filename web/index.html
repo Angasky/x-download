@@ -246,9 +246,26 @@
       }
     }
 
-    function streamUrl(u, download) {
-      const q = "/api/stream?url=" + encodeURIComponent(u);
-      return download ? q + "&download=1" : q;
+    function streamUrl(u, download, format) {
+      const params = new URLSearchParams({ url: u });
+      const headers = format?.http_headers || {};
+      if (download) params.set("download", "1");
+      if (headers.Referer) params.set("referer", headers.Referer);
+      if (headers["User-Agent"]) params.set("user_agent", headers["User-Agent"]);
+      if (headers.Origin) params.set("origin", headers.Origin);
+      return "/api/stream?" + params.toString();
+    }
+
+    function downloadUrl(source, format) {
+      if (source && format?.format_id && format.acodec === "none") {
+        const params = new URLSearchParams({
+          url: source,
+          format_id: format.format_id,
+          merge_audio: "1",
+        });
+        return "/api/ytdlp-download?" + params.toString();
+      }
+      return streamUrl(format?.url || "", true, format);
     }
 
     form.addEventListener("submit", async (e) => {
@@ -310,12 +327,12 @@
       const caption = d.desc
         ? '<div class="caption"><span class="caption-label">视频文案</span>' + escapeHtml(d.desc) + "</div>"
         : "";
-      const formats = normalizeFormats(d.formats, play, d.duration, d.platform);
+      const formats = normalizeFormats(d.formats, play, d.duration, d.platform, d.http_headers);
       const selectedPlay = formats[0]?.url || play;
       const media = images.length
         ? '<div class="gallery">' + images.map((u) => '<img src="' + escapeHtml(u) + '" alt="" referrerpolicy="no-referrer" />').join("") + "</div>"
         : selectedPlay
-          ? '<video id="preview-video" controls playsinline src="' + escapeHtml(streamUrl(selectedPlay)) + '" poster="' + escapeHtml(d.thumbnail || "") + '"></video>'
+          ? '<video id="preview-video" controls playsinline src="' + escapeHtml(streamUrl(selectedPlay, false, formats[0])) + '" poster="' + escapeHtml(d.thumbnail || "") + '"></video>'
           : (d.thumbnail ? '<img class="cover" src="' + escapeHtml(d.thumbnail) + '" alt="" referrerpolicy="no-referrer" />' : "");
       const qualityPicker = formats.length > 0
         ? '<div class="quality-picker"><span class="quality-title">选择分辨率 / 清晰度</span><div class="quality-buttons">' +
@@ -325,7 +342,7 @@
           ).join("") + "</div></div>"
         : "";
       const dl = selectedPlay
-        ? '<a id="download-selected" href="' + escapeHtml(streamUrl(selectedPlay, true)) + '">下载视频</a>'
+        ? '<a id="download-selected" href="' + escapeHtml(downloadUrl(d.source, formats[0])) + '">下载所选清晰度</a>'
         : "";
       const raw = selectedPlay ? '<a id="raw-selected" class="ghost" href="' + escapeHtml(selectedPlay) + '" target="_blank" rel="noreferrer">直链</a>' : "";
       result.innerHTML =
@@ -346,16 +363,16 @@
           const direct = document.getElementById("raw-selected");
           if (video) {
             video.pause();
-            video.src = streamUrl(selected.url);
+            video.src = streamUrl(selected.url, false, selected);
             video.load();
           }
-          if (download) download.href = streamUrl(selected.url, true);
+          if (download) download.href = downloadUrl(d.source, selected);
           if (direct) direct.href = selected.url;
         });
       });
     }
 
-    function normalizeFormats(source, fallbackUrl, duration, platform) {
+    function normalizeFormats(source, fallbackUrl, duration, platform, fallbackHeaders) {
       const seen = new Set();
       const grouped = new Map();
       for (const item of Array.isArray(source) ? source : []) {
@@ -370,18 +387,27 @@
         const dimensions = item.width || item.height
           ? [item.width, item.height].filter(Boolean).join(" × ")
           : "";
+        const audioNote = item.acodec === "none"
+          ? (item.format_id ? "下载自动合并音频" : "仅视频")
+          : "";
         return {
           ...item,
           label: formatLabel(item),
           sizeLabel,
-          detailsLabel: [dimensions, sizeLabel].filter(Boolean).join(" · "),
+          detailsLabel: [dimensions, sizeLabel, audioNote].filter(Boolean).join(" · "),
         };
       });
       formats.sort((a, b) => formatScore(b) - formatScore(a));
       const recommended = formats.findIndex((item) => item.url === fallbackUrl);
       if (recommended > 0) formats.unshift(formats.splice(recommended, 1)[0]);
       if (fallbackUrl && !seen.has(fallbackUrl)) {
-        formats.unshift({ url: fallbackUrl, label: "推荐清晰度", sizeLabel: "大小未知", detailsLabel: "大小未知" });
+        formats.unshift({
+          url: fallbackUrl,
+          label: "推荐清晰度",
+          sizeLabel: "大小未知",
+          detailsLabel: "大小未知",
+          http_headers: fallbackHeaders || {},
+        });
       }
       return formats;
     }
@@ -391,7 +417,6 @@
       const parts = dimensions.length ? [Math.min(...dimensions) + "P"] : [];
       if (!dimensions.length && format.quality && format.quality !== "default") parts.push(format.quality);
       if (format.fps) parts.push(format.fps + " FPS");
-      if (format.acodec === "none") parts.push("仅视频");
       return parts.join(" · ") || "默认清晰度";
     }
 

@@ -5,6 +5,7 @@ import concurrent.futures
 import contextlib
 import http.cookiejar
 import json
+import mimetypes
 import re
 import shutil
 import tempfile
@@ -16,7 +17,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from starlette.background import BackgroundTask
 
 from backend.cookies import load_cookies, ytdlp_cookiefile
 from backend.douk_adapter import fetch_douyin_detail
@@ -111,6 +113,18 @@ def _friendly_error(url: str, error: Exception | str) -> str:
     if _YOUTUBE_DOMAINS.search(url) and youtube_cookie_error:
         return _YOUTUBE_COOKIE_HELP
     return message
+
+
+def _media_headers(*sources: Any) -> dict[str, str]:
+    allowed = {"referer", "user-agent", "origin"}
+    merged: dict[str, str] = {}
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for key, value in source.items():
+            if key.lower() in allowed and isinstance(value, str) and "\r" not in value and "\n" not in value:
+                merged[key.title()] = value
+    return merged
 
 
 def _extract_url(text: str) -> str:
@@ -344,6 +358,7 @@ def _ytdlp_extract(url: str) -> dict:
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
+        "noprogress": True,
         "nocolor": True,
         "skip_download": True,
         "socket_timeout": 30,
@@ -367,13 +382,17 @@ def _ytdlp_extract(url: str) -> dict:
         return {}
     formats = info.get("formats") or []
     best_url = info.get("url") or ""
+    selected_format = next((f for f in formats if f.get("url") == best_url), {})
     if not best_url and formats:
         video_formats = [f for f in formats if f.get("vcodec") != "none" and f.get("url")]
         if video_formats:
-            best = max(video_formats, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0))
-            best_url = best.get("url", "")
+            selected_format = max(video_formats, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0))
+            best_url = selected_format.get("url", "")
         elif formats:
-            best_url = formats[-1].get("url", "")
+            selected_format = formats[-1]
+            best_url = selected_format.get("url", "")
+    common_headers = _media_headers(info.get("http_headers"))
+    selected_headers = _media_headers(common_headers, selected_format.get("http_headers"))
     return {
         "title": info.get("title") or info.get("fulltitle") or "",
         "desc": info.get("description") or "",
@@ -400,10 +419,12 @@ def _ytdlp_extract(url: str) -> dict:
             else info.get("repost_count")
         ),
         "url": best_url,
+        "http_headers": selected_headers,
         "source": url,
         "formats": [
             {
                 "url": f.get("url", ""),
+                "format_id": str(f.get("format_id") or ""),
                 "quality": f.get("format_note") or f.get("format_id") or "",
                 "ext": f.get("ext") or "",
                 "width": f.get("width"),
@@ -414,6 +435,7 @@ def _ytdlp_extract(url: str) -> dict:
                 "tbr": f.get("tbr"),
                 "filesize": f.get("filesize"),
                 "filesize_approx": f.get("filesize_approx"),
+                "http_headers": _media_headers(common_headers, f.get("http_headers")),
             }
             for f in formats
             if f.get("url")
@@ -560,27 +582,88 @@ async def download_media(request: Request):
     video_url = data.get("url") or ""
     if not video_url:
         return JSONResponse({"error": "未找到可下载视频地址"}, status_code=400)
-    return await _proxy_stream(video_url, download=True)
+    selected_format = next(
+        (item for item in data.get("formats") or [] if item.get("url") == video_url),
+        {},
+    )
+    if selected_format.get("format_id") and selected_format.get("acodec") == "none":
+        return await _prepare_ytdlp_download(url, selected_format["format_id"], merge_audio=True)
+    headers = data.get("http_headers") or {}
+    return await _proxy_stream(
+        video_url,
+        download=True,
+        referer=headers.get("Referer"),
+        user_agent=headers.get("User-Agent"),
+        origin=headers.get("Origin"),
+    )
+
+
+@router.get("/api/ytdlp-download", include_in_schema=False)
+async def download_ytdlp_format(
+    url: str = "",
+    format_id: str = "",
+    merge_audio: int = 0,
+):
+    source = url.strip()
+    selected_format = format_id.strip()
+    if not source.startswith("http://") and not source.startswith("https://"):
+        return JSONResponse({"error": "unsupported url"}, status_code=400)
+    if not selected_format or not re.fullmatch(r"[0-9A-Za-z_.-]+", selected_format):
+        return JSONResponse({"error": "invalid format_id"}, status_code=400)
+    return await _prepare_ytdlp_download(source, selected_format, merge_audio=bool(merge_audio))
 
 
 @router.get("/api/stream", include_in_schema=False)
 @router.head("/api/stream", include_in_schema=False)
-async def stream_media(request: Request, url: Optional[str] = None, download: int = 0):
+async def stream_media(
+    request: Request,
+    url: Optional[str] = None,
+    download: int = 0,
+    referer: Optional[str] = None,
+    user_agent: Optional[str] = None,
+    origin: Optional[str] = None,
+):
     target = (url or request.query_params.get("url") or "").strip()
     if not target:
         return JSONResponse({"error": "url is required"}, status_code=400)
     if not target.startswith("http://") and not target.startswith("https://"):
         return JSONResponse({"error": "unsupported url"}, status_code=400)
-    return await _proxy_stream(target, download=bool(download))
+    return await _proxy_stream(
+        target,
+        download=bool(download),
+        referer=referer,
+        user_agent=user_agent,
+        origin=origin,
+        byte_range=request.headers.get("range"),
+    )
 
 
-async def _proxy_stream(target: str, download: bool = False):
+async def _proxy_stream(
+    target: str,
+    download: bool = False,
+    referer: str | None = None,
+    user_agent: str | None = None,
+    origin: str | None = None,
+    byte_range: str | None = None,
+):
+    safe_headers = _media_headers(
+        {
+            "Referer": referer or target,
+            "User-Agent": user_agent
+            or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Origin": origin or "",
+        }
+    )
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "User-Agent": safe_headers["User-Agent"],
         "Accept": "*/*",
         "Accept-Encoding": "identity",
-        "Referer": target,
+        "Referer": safe_headers["Referer"],
     }
+    if safe_headers.get("Origin"):
+        headers["Origin"] = safe_headers["Origin"]
+    if byte_range and re.fullmatch(r"bytes=\d*-\d*", byte_range.strip(), re.IGNORECASE):
+        headers["Range"] = byte_range.strip()
 
     def _open():
         req = urllib.request.Request(target, headers=headers, method="GET")
@@ -600,7 +683,13 @@ async def _proxy_stream(target: str, download: bool = False):
 
     media = resp.headers.get("content-type", "video/mp4")
     out_headers = {}
-    for k in ("Content-Disposition", "Cache-Control", "Accept-Ranges"):
+    for k in (
+        "Content-Disposition",
+        "Cache-Control",
+        "Accept-Ranges",
+        "Content-Range",
+        "Content-Length",
+    ):
         v = resp.headers.get(k)
         if v:
             out_headers[k] = v
@@ -617,4 +706,76 @@ async def _proxy_stream(target: str, download: bool = False):
         finally:
             resp.close()
 
-    return StreamingResponse(iter_chunks(), media_type=media, headers=out_headers)
+    return StreamingResponse(
+        iter_chunks(),
+        status_code=getattr(resp, "status", 200),
+        media_type=media,
+        headers=out_headers,
+    )
+
+
+def _download_ytdlp_file(
+    source: str,
+    format_id: str,
+    merge_audio: bool,
+    directory: Path,
+) -> Path:
+    if yt_dlp is None:
+        raise RuntimeError("yt-dlp 未安装，请重新运行一键启动脚本")
+    if merge_audio and not shutil.which("ffmpeg"):
+        raise RuntimeError("该清晰度需要合并音频，请先安装 ffmpeg")
+    selector = f"{format_id}+bestaudio/{format_id}" if merge_audio else format_id
+    options = {
+        "quiet": True,
+        "no_warnings": True,
+        "nocolor": True,
+        "format": selector,
+        "outtmpl": str(directory / "%(title).120B [%(id)s].%(ext)s"),
+        "merge_output_format": "mp4",
+        "socket_timeout": 30,
+        "nocheckcertificate": True,
+        "windowsfilenames": True,
+    }
+    if cookiefile := ytdlp_cookiefile():
+        options["cookiefile"] = cookiefile
+    with yt_dlp.YoutubeDL(options) as ydl:
+        ydl.extract_info(source, download=True)
+    files = [
+        path
+        for path in directory.iterdir()
+        if path.is_file() and path.suffix.lower() not in {".part", ".ytdl", ".temp"}
+    ]
+    if not files:
+        raise RuntimeError("yt-dlp 下载完成但未找到输出文件")
+    return max(files, key=lambda path: path.stat().st_size)
+
+
+async def _prepare_ytdlp_download(
+    source: str,
+    format_id: str,
+    merge_audio: bool,
+):
+    directory = Path(tempfile.mkdtemp(prefix="x-download-ytdlp-"))
+    try:
+        loop = asyncio.get_running_loop()
+        output = await loop.run_in_executor(
+            _executor,
+            _download_ytdlp_file,
+            source,
+            format_id,
+            merge_audio,
+            directory,
+        )
+    except Exception as error:
+        shutil.rmtree(directory, ignore_errors=True)
+        return JSONResponse(
+            {"error": _friendly_error(source, error)},
+            status_code=502,
+        )
+    media_type = mimetypes.guess_type(output.name)[0] or "application/octet-stream"
+    return FileResponse(
+        output,
+        media_type=media_type,
+        filename=output.name,
+        background=BackgroundTask(shutil.rmtree, directory, ignore_errors=True),
+    )

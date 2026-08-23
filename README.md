@@ -252,6 +252,7 @@ Content-Type: application/json
 | `POST` | `/api/download` | 解析并下载默认视频 |
 | `GET` | `/api/stream?url=...` | 代理预览媒体 |
 | `GET` | `/api/stream?url=...&download=1` | 代理下载媒体 |
+| `GET` | `/api/ytdlp-download?url=...&format_id=...&merge_audio=1` | 下载指定清晰度并合并音频 |
 | `GET` | `/api/health` | 检查依赖、ffmpeg、DouK 与 Cookie |
 
 <details>
@@ -320,9 +321,16 @@ start.sh              macOS / Linux 入口
 </details>
 
 <details>
+<summary><b>哔哩哔哩能显示信息，但视频不能播放或下载</b></summary>
+
+哔哩哔哩的视频地址需要正确的 `Referer`，并且常以 DASH 形式分别提供视频轨和音频轨。x-download 会保留 yt-dlp 提取的安全请求头、转发 Range 请求，并在下载所选清晰度时自动调用 ffmpeg 合并音视频。请确认健康检查中的 ffmpeg 状态为可用。
+
+</details>
+
+<details>
 <summary><b>高分辨率视频没有声音</b></summary>
 
-部分网站把视频和音频分开提供。“仅视频”档位本身没有音轨；安装 ffmpeg 后可由 yt-dlp 合并。
+部分网站把视频和音频分开提供。选择带有“下载自动合并音频”提示的清晰度后，x-download 会在下载时调用 yt-dlp 与 ffmpeg 合并；网页预览仍可能只播放视频轨。
 
 </details>
 
