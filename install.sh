@@ -204,7 +204,7 @@ if [[ -t 1 ]] && { exec 3</dev/tty; } 2>/dev/null; then
 fi
 
 if [[ -z "$ACCESS_MODE" && "$HAS_TTY" -eq 1 ]]; then
-  printf '\n是否开启公网访问并安装后台常驻服务？[y/N]: ' >&3
+  printf '\n是否开启公网访问并安装后台常驻服务？[y/N]: '
   read -r public_answer <&3 || public_answer=""
   case "${public_answer,,}" in
     y|yes|是)
