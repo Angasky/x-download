@@ -344,6 +344,10 @@ start.sh              macOS / Linux 入口
 
 </details>
 
+## 🔗 友链
+
+- [LinuxDo](https://linux.do/) — 高质量的 Linux 中文社区
+
 ## ☕ 支持项目
 
 <div align="center">
