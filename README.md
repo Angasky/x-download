@@ -110,7 +110,7 @@ winget install Gyan.FFmpeg
 Linux 推荐使用一行命令自动安装并启动：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Angasky/x-download/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Angasky/x-download/refs/heads/main/install.sh | bash
 ```
 
 安装器默认将项目保存到 `~/x-download`，自动准备 Git、ffmpeg、Python 3.12、虚拟环境和项目依赖。重复执行同一命令会安全更新现有安装并保留配置。
@@ -118,7 +118,7 @@ curl -fsSL https://raw.githubusercontent.com/Angasky/x-download/main/install.sh 
 只安装但不启动：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Angasky/x-download/main/install.sh | bash -s -- --no-start
+curl -fsSL https://raw.githubusercontent.com/Angasky/x-download/refs/heads/main/install.sh | bash -s -- --no-start
 ```
 
 手动启动或 macOS 使用：
