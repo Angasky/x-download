@@ -2,6 +2,7 @@
 .env
 config/cookies.yaml
 config/ytdlp_cookies.txt
+config/.setup_complete
 *.cookies.txt
 
 # 运行时

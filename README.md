@@ -82,14 +82,23 @@ flowchart LR
 - 能够访问目标网站的网络
 - ffmpeg（可选但推荐，用于合并独立视频轨与音频轨）
 
+> [!IMPORTANT]
+> **Windows 用户必须提前安装 Python 3.12 或更高版本才能运行本项目。** 本项目当前提供的是 Python 源码启动方式，并不是免安装 `.exe`；`start.bat` 只负责配置环境、安装依赖和启动服务，不能代替 Python。安装 Python 时请勾选 **Add Python to PATH**，安装后可在 CMD 中执行 `python --version` 或 `py -3 --version` 检查。
+
 <details>
 <summary><b>Windows</b></summary>
+
+> **运行前必须安装 [Python 3.12+](https://www.python.org/downloads/) 和 [Git](https://git-scm.com/download/win)。没有 Python 环境时，双击 `start.bat` 无法启动项目。**
 
 双击 `start.bat`，或在终端执行：
 
 ```bat
 start.bat
 ```
+
+首次启动会进入中文配置向导，引导设置访问端口、访问范围、浏览器行为和平台 Cookie；配置完成后自动安装依赖并启动。以后再次双击会直接进入 **Mxioc Windows 管理菜单**，可启动服务、修改 Cookie、修改端口、切换访问模式或更新项目依赖。
+
+启动脚本会将 Windows 控制台切换到 UTF-8。考虑到部分 Win10 CMD 字体不具备彩色 Emoji 字形，菜单使用兼容性更好的文字、线框和 Mxioc 字符标识，避免出现方框或乱码。
 
 PowerShell 也可以使用：
 
@@ -191,6 +200,16 @@ start.bat --reconfigure
 
 本地配置保存在 `config/cookies.yaml`；yt-dlp Cookie 可直接放到 `config/ytdlp_cookies.txt`。两者均已被 Git 忽略。
 
+YouTube 和 X/Twitter 统一推荐使用 Chrome/Edge 插件 **[Cookie-Editor](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm)** 导出当前网站的 Cookie：
+
+| 平台 | Cookie-Editor 导出格式 | 在 x-download 中的用法 |
+|---|---|---|
+| YouTube | **Netscape** | 导出 `.txt`，保存为 `config/ytdlp_cookies.txt` |
+| X / Twitter | **JSON** | 在 Windows 管理菜单或 Linux `xd` 菜单中整段粘贴 |
+
+> [!CAUTION]
+> Cookie 相当于账号登录凭证。不要使用 Cookie-Editor 的分享链接功能，不要把导出的内容发送给他人、粘贴到 Issue 或提交到 Git；只保存在自己的电脑或服务器中。
+
 ```yaml
 douyin_cookie: "抖音网页请求中的完整 Cookie"
 tiktok_cookie: "TikTok 网页请求中的完整 Cookie，可选"
@@ -226,10 +245,11 @@ TikTok Cookie 对公开视频不是始终必填。需要登录内容时，可登
 部分敏感内容、年龄或地区受限内容对未登录访客只返回 `TweetTombstone`，yt-dlp 会提示 `No video could be found in this tweet`。此时需要配置本人 X 账号的 Cookie：
 
 1. 登录 [X 网页版](https://x.com/)，确认浏览器中可以正常播放目标视频。
-2. 使用只在本机处理数据的 Cookie 导出扩展，导出 `x.com` 的完整 Cookie JSON。
-3. Linux 输入 `xd` 并选择“修改 Cookie”；Windows 运行 `start.bat --reconfigure`。
-4. 在“X/Twitter Cookie”提示处直接粘贴完整多行 JSON，包括最外层的 `[` 和 `]`。
-5. 程序会自动转换为 Netscape 格式，并与现有 YouTube Cookie 合并到 yt-dlp Cookie 文件中。
+2. 安装 [Cookie-Editor](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm)，停留在 `x.com` 页面并打开插件。
+3. 点击导出按钮，格式选择 **JSON**，复制或导出 `x.com` 的完整 Cookie JSON。
+4. Linux 输入 `xd` 并选择“修改 Cookie”；Windows 双击 `start.bat`，在 Mxioc 菜单中选择“修改 Cookie”。
+5. 在“X/Twitter Cookie”提示处直接粘贴完整多行 JSON，包括最外层的 `[` 和 `]`。
+6. 程序会自动转换为 Netscape 格式，并与现有 YouTube Cookie 合并到 yt-dlp Cookie 文件中。
 
 也可以粘贴来自 `x.com` 请求标头的单行 Cookie。关键登录字段通常包含 `auth_token` 和 `ct0`，但请始终复制完整 Cookie，不要逐项手工拼接。
 
@@ -246,15 +266,15 @@ YouTube Cookie 主要用于年龄限制视频、私人播放列表和会员内�
 > [!WARNING]
 > 使用账号 Cookie 高频下载可能导致账号受到临时或永久限制。仅在必要时使用，控制请求频率，建议使用备用账号。
 
-YouTube 会轮换普通标签页中的账号 Cookie。请按照 [yt-dlp 官方指南](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies)导出：
+YouTube 会轮换普通标签页中的账号 Cookie。请使用 [Cookie-Editor](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm)，并按照 [yt-dlp 官方指南](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies)推荐的独立会话方式导出：
 
-1. 安装官方 FAQ 推荐的本地导出扩展：Chrome/Edge 使用 `Get cookies.txt LOCALLY`，Firefox 使用 `cookies.txt`。
-2. 在扩展管理页面允许该扩展在无痕模式中运行。
+1. 安装 Chrome/Edge 插件 [Cookie-Editor](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm)。
+2. 在浏览器扩展管理页面允许 Cookie-Editor 在无痕模式中运行。
 3. 新建无痕/隐私窗口，并且只保留一个标签页。
 4. 在该标签页登录 YouTube。
 5. 使用同一标签页访问 [youtube.com/robots.txt](https://www.youtube.com/robots.txt)。
-6. 使用扩展只导出 `youtube.com` Cookie。
-7. 保存为项目中的 `config/ytdlp_cookies.txt`。
+6. 打开 Cookie-Editor，点击导出按钮，将格式明确选择为 **Netscape**；不要选择 JSON 或 Header String。
+7. 直接导出 `.txt` 文件，并将其重命名、保存为项目中的 `config/ytdlp_cookies.txt`。
 8. 立即关闭整个无痕窗口，不再使用该会话。
 9. 重启 `start.bat`；健康检查应显示 `yt-dlp cookies 已配置`。
 

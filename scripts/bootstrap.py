@@ -27,6 +27,7 @@ COOKIES_FILE = CONFIG_DIR / "cookies.yaml"
 COOKIES_EXAMPLE = CONFIG_DIR / "cookies.example.yaml"
 YTDLP_COOKIES = CONFIG_DIR / "ytdlp_cookies.txt"
 APP_CONFIG = CONFIG_DIR / "app.yaml"
+WINDOWS_SETUP_MARKER = CONFIG_DIR / ".setup_complete"
 
 
 def py_exe() -> Path:
@@ -179,6 +180,109 @@ def save_app_config(host: str, port: int, open_browser: bool) -> None:
     )
 
 
+def windows_logo() -> None:
+    os.system("cls")
+    print(
+        r"""
+███╗   ███╗██╗  ██╗██╗ ██████╗  ██████╗
+████╗ ████║╚██╗██╔╝██║██╔═══██╗██╔════╝
+██╔████╔██║ ╚███╔╝ ██║██║   ██║██║
+██║╚██╔╝██║ ██╔██╗ ██║██║   ██║██║
+██║ ╚═╝ ██║██╔╝ ██╗██║╚██████╔╝╚██████╗
+╚═╝     ╚═╝╚═╝  ╚═╝╚═╝ ╚═════╝  ╚═════╝
+""".strip("\n")
+    )
+    print("        x-download · Mxioc Windows 管理控制台")
+    print("  ────────────────────────────────────────────")
+
+
+def prompt_port(current: int) -> int:
+    while True:
+        value = input(f"请输入网页访问端口 [当前 {current}]：").strip()
+        if not value:
+            return current
+        try:
+            port = int(value)
+        except ValueError:
+            print("[提示] 请输入数字端口。")
+            continue
+        if 1 <= port <= 65535:
+            return port
+        print("[提示] 端口必须在 1 到 65535 之间。")
+
+
+def prompt_yes_no(label: str, default: bool) -> bool:
+    hint = "Y/n" if default else "y/N"
+    value = input(f"{label} [{hint}]：").strip().lower()
+    if not value:
+        return default
+    return value in {"y", "yes", "1", "是"}
+
+
+def windows_first_run() -> None:
+    windows_logo()
+    print("  首次启动配置向导")
+    print("  配置仅保存在当前项目的 config 目录中。")
+    print("  ────────────────────────────────────────────")
+    _, current_port, current_browser = load_app_config()
+    port = prompt_port(current_port)
+    print("  1. 仅本机访问（推荐，更安全）")
+    print("  2. 局域网 / 公网访问")
+    access = input("请选择访问模式 [默认 1]：").strip()
+    host = "0.0.0.0" if access == "2" else "127.0.0.1"
+    open_browser = prompt_yes_no("启动后自动打开浏览器", current_browser)
+    save_app_config(host, port, open_browser)
+    prompt_cookies(reconfigure=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    WINDOWS_SETUP_MARKER.write_text("configured\n", encoding="utf-8")
+    print("\n[完成] 首次配置已保存，正在安装依赖并启动服务。")
+
+
+def windows_menu(args: argparse.Namespace) -> bool:
+    while True:
+        host, port, open_browser = load_app_config()
+        access_text = "公网 / 局域网" if host == "0.0.0.0" else "仅本机"
+        browser_text = "开启" if open_browser else "关闭"
+        windows_logo()
+        print("   1.  启动服务          2.  修改 Cookie")
+        print("   3.  修改访问端口      4.  修改访问模式")
+        print("   5.  自动打开浏览器    6.  更新后启动")
+        print("   7.  打开配置目录      0.  退出")
+        print("  ────────────────────────────────────────────")
+        print(f"  状态：{access_text} · 端口 {port} · 浏览器 {browser_text}")
+        print(f"  配置：{CONFIG_DIR}")
+        print()
+        choice = input("请选择操作 [0-7]：").strip()
+        if choice == "1":
+            return True
+        if choice == "2":
+            prompt_cookies(reconfigure=True)
+            input("\n按 Enter 返回菜单……")
+        elif choice == "3":
+            save_app_config(host, prompt_port(port), open_browser)
+            print("[完成] 端口已保存。")
+            input("\n按 Enter 返回菜单……")
+        elif choice == "4":
+            new_host = "127.0.0.1" if host == "0.0.0.0" else "0.0.0.0"
+            save_app_config(new_host, port, open_browser)
+            print(f"[完成] 已切换为{'仅本机访问' if new_host == '127.0.0.1' else '公网 / 局域网访问'}。")
+            input("\n按 Enter 返回菜单……")
+        elif choice == "5":
+            save_app_config(host, port, not open_browser)
+            print(f"[完成] 自动打开浏览器已{'开启' if not open_browser else '关闭'}。")
+            input("\n按 Enter 返回菜单……")
+        elif choice == "6":
+            args.update_vendor = True
+            return True
+        elif choice == "7":
+            os.startfile(CONFIG_DIR)  # type: ignore[attr-defined]
+        elif choice == "0":
+            return False
+        else:
+            print("[提示] 无效选项，请重新输入。")
+            input("\n按 Enter 返回菜单……")
+
+
 def prompt_cookies(reconfigure: bool) -> None:
     from backend.cookies import load_cookies, save_cookies, save_x_cookies
 
@@ -298,9 +402,17 @@ def main() -> None:
     parser.add_argument("--host", help="设置并保存监听地址，例如 0.0.0.0")
     parser.add_argument("--port", type=int, help="设置并保存监听端口")
     parser.add_argument("--skip-cookie-prompt", action="store_true", help="不询问 Cookie")
+    parser.add_argument("--windows-menu", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     os.chdir(str(ROOT))
+    if args.windows_menu and os.name == "nt":
+        if not WINDOWS_SETUP_MARKER.exists():
+            windows_first_run()
+        elif not windows_menu(args):
+            return
+        # Windows 向导和菜单已经负责 Cookie 配置，启动阶段不再重复询问。
+        args.skip_cookie_prompt = True
     ensure_python()
     python = ensure_venv()
     if not args.skip_install:
