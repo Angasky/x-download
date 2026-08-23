@@ -108,13 +108,19 @@ winget install Gyan.FFmpeg
 <details>
 <summary><b>macOS / Linux</b></summary>
 
-Linux 推荐使用一行命令自动安装。交互过程中可选择“公网访问”，安装器会自动监听 `0.0.0.0:18111`、配置 systemd 常驻服务，并在 UFW 已启用时放行端口：
+Linux 推荐使用一行命令打开 Mxioc 交互管理菜单：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Angasky/x-download/refs/heads/main/install.sh | bash
 ```
 
-安装器默认将项目保存到 `~/x-download`，自动准备 Git、ffmpeg、Python 3.12、虚拟环境和项目依赖。重复执行同一命令会安全更新现有安装并保留配置。
+菜单提供安装/更新、卸载、修改端口、重启服务、修改 Cookie、切换访问模式、查看状态和日志。安装完成后会注册全局命令，此后直接输入：
+
+```bash
+xd
+```
+
+即可再次打开菜单。安装器默认将项目保存到 `~/x-download`，自动准备 Git、ffmpeg、Python 3.12、虚拟环境和项目依赖。选择公网访问后，会自动监听 `0.0.0.0`、配置 systemd 常驻服务，并在 UFW 已启用时放行当前端口。
 
 无交互环境可显式开启公网模式：
 
@@ -157,6 +163,7 @@ chmod +x start.sh
 
 | 参数 | 用途 |
 |---|---|
+| `--menu` | 打开 Mxioc 交互管理菜单 |
 | `--reconfigure` | 重新填写 Cookie |
 | `--public` | 公网监听并安装 systemd 常驻服务 |
 | `--local` | 仅监听本机，非交互安装时默认使用 |

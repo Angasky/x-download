@@ -115,12 +115,15 @@ install_python() {
 
 usage() {
   cat <<'EOF'
-x-download Linux 一键安装器
+x-download Linux 管理器
 
 用法：
+  xd
+  install.sh
   install.sh [--install-dir 路径] [--public|--local] [--no-start] [--reconfigure]
 
 选项：
+  --menu              打开交互管理菜单
   --install-dir PATH  指定安装目录，默认 ~/x-download
   --public            开启公网监听并安装 systemd 常驻服务
   --local             仅监听本机（默认非交互模式）
@@ -130,8 +133,17 @@ x-download Linux 一键安装器
 EOF
 }
 
+ACTION="menu"
+if [[ $# -gt 0 ]]; then
+  ACTION="install"
+fi
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --menu)
+      ACTION="menu"
+      shift
+      ;;
     --install-dir)
       [[ $# -ge 2 ]] || fail "--install-dir 缺少路径"
       INSTALL_DIR="$2"
@@ -168,54 +180,57 @@ done
 [[ -n "$INSTALL_DIR" && "$INSTALL_DIR" != "/" && "$INSTALL_DIR" != "$USER_HOME" ]] \
   || fail "安装目录不安全：$INSTALL_DIR"
 
-say "检查系统依赖"
-if ! command_exists git; then
-  install_package git
-fi
-if ! command_exists ffmpeg; then
-  warn "未检测到 ffmpeg，正在尝试安装（用于合并音视频）"
-  install_package ffmpeg || warn "ffmpeg 自动安装失败，可稍后手动安装。"
-fi
-
-say "安装或更新项目：$INSTALL_DIR"
-if [[ -d "$INSTALL_DIR/.git" ]]; then
-  git -C "$INSTALL_DIR" pull --ff-only
-elif [[ -e "$INSTALL_DIR" ]] && [[ -n "$(find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
-  fail "安装目录已存在且不是 x-download Git 仓库：$INSTALL_DIR"
-else
-  mkdir -p "$(dirname "$INSTALL_DIR")"
-  git clone --depth 1 "$REPOSITORY_URL" "$INSTALL_DIR"
-fi
-
-python_cmd="$(find_python || true)"
-if [[ -z "$python_cmd" ]]; then
-  python_cmd="$(install_python)"
-fi
-python_is_compatible "$python_cmd" || fail "未找到可用的 Python 3.12+。"
-
-say "准备依赖并启动 x-download"
-cd "$INSTALL_DIR"
-chmod +x start.sh install.sh
-printf '安装目录：%s\n' "$INSTALL_DIR"
-
 HAS_TTY=0
 if [[ -t 1 ]] && { exec 3</dev/tty; } 2>/dev/null; then
   HAS_TTY=1
 fi
 
-if [[ -z "$ACCESS_MODE" && "$HAS_TTY" -eq 1 ]]; then
-  printf '\n是否开启公网访问并安装后台常驻服务？[y/N]: '
-  read -r public_answer <&3 || public_answer=""
-  case "${public_answer,,}" in
-    y|yes|是)
-      ACCESS_MODE="public"
-      ;;
-    *)
-      ACCESS_MODE="local"
-      ;;
-  esac
-fi
-ACCESS_MODE="${ACCESS_MODE:-local}"
+read_tty() {
+  local variable_name="$1"
+  local prompt="$2"
+  local value=""
+  [[ "$HAS_TTY" -eq 1 ]] || return 1
+  printf '%s' "$prompt"
+  IFS= read -r -u 3 value || value=""
+  printf -v "$variable_name" '%s' "$value"
+}
+
+pause_menu() {
+  local ignored=""
+  read_tty ignored $'\n按 Enter 返回菜单...' || true
+}
+
+require_installation() {
+  [[ -d "$INSTALL_DIR/.git" && -x "$INSTALL_DIR/.venv/bin/python" ]] \
+    || fail "尚未安装 x-download，请先在菜单中选择 1。"
+}
+
+prepare_project() {
+  say "检查系统依赖"
+  command_exists git || install_package git
+  if ! command_exists ffmpeg; then
+    warn "未检测到 ffmpeg，正在尝试安装（用于合并音视频）"
+    install_package ffmpeg || warn "ffmpeg 自动安装失败，可稍后手动安装。"
+  fi
+
+  say "安装或更新项目：$INSTALL_DIR"
+  if [[ -d "$INSTALL_DIR/.git" ]]; then
+    git -C "$INSTALL_DIR" pull --ff-only
+  elif [[ -e "$INSTALL_DIR" ]] && [[ -n "$(find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+    fail "安装目录已存在且不是 x-download Git 仓库：$INSTALL_DIR"
+  else
+    mkdir -p "$(dirname "$INSTALL_DIR")"
+    git clone --depth 1 "$REPOSITORY_URL" "$INSTALL_DIR"
+  fi
+
+  python_cmd="$(find_python || true)"
+  if [[ -z "$python_cmd" ]]; then
+    python_cmd="$(install_python)"
+  fi
+  python_is_compatible "$python_cmd" || fail "未找到可用的 Python 3.12+。"
+  cd "$INSTALL_DIR"
+  chmod +x start.sh install.sh
+}
 
 run_bootstrap() {
   if [[ "$HAS_TTY" -eq 1 ]]; then
@@ -225,7 +240,34 @@ run_bootstrap() {
   fi
 }
 
-install_public_service() {
+config_value() {
+  local key="$1"
+  local fallback="$2"
+  local value=""
+  if [[ -r "$INSTALL_DIR/config/app.yaml" ]]; then
+    value="$(awk -F: -v key="$key" '$1 == key {sub(/^[[:space:]]+/, "", $2); print $2; exit}' "$INSTALL_DIR/config/app.yaml")"
+  fi
+  printf '%s\n' "${value:-$fallback}"
+}
+
+install_xd_command() {
+  local shortcut="/usr/local/bin/xd"
+  local target="$INSTALL_DIR/install.sh"
+  if [[ -e "$shortcut" && ! -L "$shortcut" ]]; then
+    warn "$shortcut 已存在且不是符号链接，未覆盖；可继续使用 $target 打开菜单。"
+    return
+  fi
+  run_as_root ln -sfn "$target" "$shortcut"
+}
+
+allow_firewall_port() {
+  local port="$1"
+  if command_exists ufw && run_as_root ufw status 2>/dev/null | grep -q '^Status: active'; then
+    run_as_root ufw allow "$port/tcp"
+  fi
+}
+
+install_managed_service() {
   command_exists systemctl || fail "当前系统不支持 systemd，无法安装后台常驻服务。"
   [[ "$INSTALL_DIR" != *[[:space:]]* && "$INSTALL_DIR" != *'"'* ]] \
     || fail "公网服务安装目录不能包含空白字符或双引号。"
@@ -243,9 +285,7 @@ install_public_service() {
     "User=$(id -un)" \
     "WorkingDirectory=$INSTALL_DIR" \
     "Environment=\"PYTHONPATH=$INSTALL_DIR\"" \
-    'Environment="XDOWNLOAD_HOST=0.0.0.0"' \
-    'Environment="XDOWNLOAD_PORT=18111"' \
-    "ExecStart=$INSTALL_DIR/.venv/bin/python -m uvicorn backend.server:app --host 0.0.0.0 --port 18111 --no-use-colors" \
+    "ExecStart=$INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/bootstrap.py --skip-install --no-browser --skip-cookie-prompt" \
     'Restart=on-failure' \
     'RestartSec=3' \
     '' \
@@ -254,36 +294,216 @@ install_public_service() {
   run_as_root install -o root -g root -m 0644 "$service_file" /etc/systemd/system/x-download.service
   rm -f -- "$service_file"
 
-  if command_exists ufw && run_as_root ufw status 2>/dev/null | grep -q '^Status: active'; then
-    run_as_root ufw allow 18111/tcp
-  fi
+  allow_firewall_port "$(config_value port 18111)"
   run_as_root systemctl daemon-reload
   run_as_root systemctl enable x-download.service
   run_as_root systemctl restart x-download.service
 }
 
-if [[ "$ACCESS_MODE" == "public" ]]; then
-  printf '访问模式：公网（0.0.0.0:18111）\n'
-  public_args=("${START_ARGS[@]}" "--host" "0.0.0.0" "--port" "18111")
-  if [[ "$NO_START" -eq 0 ]]; then
-    public_args+=("--no-start")
+choose_access_mode() {
+  local choice=""
+  if [[ -n "$ACCESS_MODE" ]]; then
+    return
   fi
-  run_bootstrap "${public_args[@]}"
-  if [[ "$NO_START" -eq 1 ]]; then
-    printf '已保存公网监听配置；根据 --no-start 要求未启动服务。\n'
-    exit 0
+  if [[ "$HAS_TTY" -eq 1 ]]; then
+    printf '\n  1) 公网访问（0.0.0.0，systemd 常驻）\n'
+    printf '  2) 仅本机访问（127.0.0.1）\n'
+    read_tty choice '请选择访问模式 [1/2，默认 2]: ' || true
   fi
-  install_public_service
-  printf '\n公网服务已启动并设置为开机自启。\n'
-  printf '访问地址：http://<服务器公网IP>:18111/\n'
-  printf '如果仍无法访问，请在云厂商安全组中放行 TCP 18111，来源设为 0.0.0.0/0。\n'
-  printf '查看状态：sudo systemctl status x-download\n'
-  exit 0
-fi
+  [[ "$choice" == "1" ]] && ACCESS_MODE="public" || ACCESS_MODE="local"
+}
 
-printf '访问模式：仅本机（http://127.0.0.1:18111/）\n'
-START_ARGS+=("--host" "127.0.0.1")
-if [[ "$HAS_TTY" -eq 1 ]]; then
-  exec "$python_cmd" scripts/bootstrap.py "${START_ARGS[@]}" <&3
+install_project() {
+  prepare_project
+  install_xd_command
+  say "准备依赖与服务"
+  printf '安装目录：%s\n' "$INSTALL_DIR"
+  choose_access_mode
+
+  if [[ "$ACCESS_MODE" == "public" ]]; then
+    printf '访问模式：公网（0.0.0.0:18111）\n'
+    local public_args=("${START_ARGS[@]}" "--host" "0.0.0.0" "--port" "18111")
+    if [[ "$NO_START" -eq 0 ]]; then
+      public_args+=("--no-start")
+    fi
+    run_bootstrap "${public_args[@]}"
+    if [[ "$NO_START" -eq 0 ]]; then
+      install_managed_service
+      printf '\n\033[1;32m[完成]\033[0m 公网服务已启动并设置为开机自启。\n'
+      printf '访问地址：http://<服务器公网IP>:18111/\n'
+      printf '云服务器安全组需放行 TCP 18111；允许所有来源时设为 0.0.0.0/0。\n'
+    else
+      printf '已保存公网配置；根据 --no-start 要求未启动服务。\n'
+    fi
+  else
+    printf '访问模式：仅本机（127.0.0.1:18111）\n'
+    local local_args=("${START_ARGS[@]}" "--host" "127.0.0.1")
+    run_bootstrap "${local_args[@]}"
+  fi
+
+  printf '\n\033[1;33m以后只需输入 xd，即可再次打开 Mxioc 管理菜单。\033[0m\n'
+}
+
+change_port() {
+  require_installation
+  python_cmd="$INSTALL_DIR/.venv/bin/python"
+  local old_port new_port
+  old_port="$(config_value port 18111)"
+  read_tty new_port "请输入新端口 [当前 $old_port]: " || fail "修改端口需要交互终端。"
+  [[ "$new_port" =~ ^[0-9]+$ && "$new_port" -ge 1 && "$new_port" -le 65535 ]] \
+    || fail "端口必须是 1 到 65535 的整数。"
+  cd "$INSTALL_DIR"
+  run_bootstrap --skip-install --no-start --skip-cookie-prompt --port "$new_port"
+  allow_firewall_port "$new_port"
+  if command_exists systemctl && systemctl cat x-download.service >/dev/null 2>&1; then
+    run_as_root systemctl restart x-download.service
+  fi
+  printf '\n[完成] 端口已修改为 %s。\n' "$new_port"
+  printf '公网访问：http://<服务器公网IP>:%s/\n' "$new_port"
+  printf '云服务器安全组也需要放行新的 TCP 端口。\n'
+}
+
+restart_service() {
+  require_installation
+  command_exists systemctl || fail "当前系统不支持 systemd。"
+  systemctl cat x-download.service >/dev/null 2>&1 || fail "尚未安装后台服务，请先选择安装或修改访问模式。"
+  run_as_root systemctl restart x-download.service
+  run_as_root systemctl --no-pager --full status x-download.service
+}
+
+configure_cookies() {
+  require_installation
+  python_cmd="$INSTALL_DIR/.venv/bin/python"
+  cd "$INSTALL_DIR"
+  run_bootstrap --skip-install --no-start --reconfigure
+  if command_exists systemctl && systemctl is-active --quiet x-download.service; then
+    run_as_root systemctl restart x-download.service
+  fi
+  printf '\n[完成] Cookie 已保存，服务已重新加载。\n'
+}
+
+change_access_mode() {
+  require_installation
+  python_cmd="$INSTALL_DIR/.venv/bin/python"
+  local choice host label
+  printf '\n  1) 公网访问（0.0.0.0）\n  2) 仅本机访问（127.0.0.1）\n'
+  read_tty choice '请选择 [1/2]: ' || fail "修改访问模式需要交互终端。"
+  case "$choice" in
+    1) host="0.0.0.0"; label="公网" ;;
+    2) host="127.0.0.1"; label="仅本机" ;;
+    *) fail "无效选择。" ;;
+  esac
+  cd "$INSTALL_DIR"
+  run_bootstrap --skip-install --no-start --skip-cookie-prompt --host "$host"
+  install_managed_service
+  printf '\n[完成] 已切换为%s访问，服务已重启。\n' "$label"
+}
+
+show_status() {
+  require_installation
+  printf '\n安装目录：%s\n' "$INSTALL_DIR"
+  printf '监听配置：%s:%s\n' "$(config_value host 127.0.0.1)" "$(config_value port 18111)"
+  if command_exists systemctl && systemctl cat x-download.service >/dev/null 2>&1; then
+    systemctl --no-pager --full status x-download.service || true
+  else
+    printf '后台服务：未安装\n'
+  fi
+}
+
+show_logs() {
+  require_installation
+  command_exists journalctl || fail "当前系统没有 journalctl。"
+  journalctl -u x-download.service -n 80 --no-pager || true
+}
+
+uninstall_project() {
+  [[ -d "$INSTALL_DIR/.git" ]] || fail "未找到安装目录：$INSTALL_DIR"
+  local confirmation="" resolved_install resolved_home remote_url shortcut_target=""
+  printf '\n\033[1;31m此操作会停止服务并删除整个目录：%s\033[0m\n' "$INSTALL_DIR"
+  read_tty confirmation '请输入 UNINSTALL 确认卸载: ' || fail "卸载需要交互终端。"
+  [[ "$confirmation" == "UNINSTALL" ]] || { printf '已取消卸载。\n'; return; }
+
+  resolved_install="$(readlink -f -- "$INSTALL_DIR")"
+  resolved_home="$(readlink -f -- "$USER_HOME")"
+  [[ -n "$resolved_install" && "$resolved_install" != "/" && "$resolved_install" != "$resolved_home" ]] \
+    || fail "拒绝删除不安全路径：$resolved_install"
+  remote_url="$(git -C "$resolved_install" remote get-url origin 2>/dev/null || true)"
+  [[ "$remote_url" == "$REPOSITORY_URL" ]] || fail "安装目录的 Git 来源不匹配，拒绝自动删除。"
+
+  if command_exists systemctl && systemctl cat x-download.service >/dev/null 2>&1; then
+    run_as_root systemctl disable --now x-download.service || true
+    run_as_root rm -f -- /etc/systemd/system/x-download.service
+    run_as_root systemctl daemon-reload
+  fi
+  if [[ -L /usr/local/bin/xd ]]; then
+    shortcut_target="$(readlink -f /usr/local/bin/xd 2>/dev/null || true)"
+    if [[ "$shortcut_target" == "$resolved_install/install.sh" ]]; then
+      run_as_root rm -f -- /usr/local/bin/xd
+    fi
+  fi
+  cd "$resolved_home"
+  rm -rf -- "$resolved_install"
+  printf '\n[完成] x-download 已卸载，配置和虚拟环境已一并删除。\n'
+  exit 0
+}
+
+show_menu() {
+  command_exists clear && clear || true
+  printf '\033[1;36m'
+  cat <<'EOF'
+███╗   ███╗██╗  ██╗██╗ ██████╗  ██████╗
+████╗ ████║╚██╗██╔╝██║██╔═══██╗██╔════╝
+██╔████╔██║ ╚███╔╝ ██║██║   ██║██║
+██║╚██╔╝██║ ██╔██╗ ██║██║   ██║██║
+██║ ╚═╝ ██║██╔╝ ██╗██║╚██████╔╝╚██████╗
+╚═╝     ╚═╝╚═╝  ╚═╝╚═╝ ╚═════╝  ╚═════╝
+EOF
+  printf '\033[0m'
+  printf '        x-download · Mxioc 管理控制台\n'
+  printf '  ─────────────────────────────────────\n'
+  printf '   1.  安装 / 更新       2.  卸载\n'
+  printf '   3.  修改访问端口      4.  重启服务\n'
+  printf '   5.  修改 Cookie       6.  修改访问模式\n'
+  printf '   7.  查看服务状态      8.  查看最近日志\n'
+  printf '   0.  退出\n'
+  printf '  ─────────────────────────────────────\n'
+  if [[ -d "$INSTALL_DIR/.git" ]]; then
+    printf '  状态：\033[1;32m已安装\033[0m  目录：%s\n' "$INSTALL_DIR"
+  else
+    printf '  状态：\033[1;33m未安装\033[0m\n'
+  fi
+  printf '  提示：安装后随时输入 \033[1;33mxd\033[0m 返回此菜单。\n\n'
+}
+
+menu_loop() {
+  [[ "$HAS_TTY" -eq 1 ]] || fail "菜单需要交互终端。无人值守安装请使用 --public 或 --local。"
+  local choice=""
+  while true; do
+    show_menu
+    read_tty choice '请选择操作 [0-8]: ' || exit 0
+    case "$choice" in
+      1)
+        ACCESS_MODE=""
+        NO_START=0
+        START_ARGS=("--no-browser" "--update-vendor")
+        install_project
+        pause_menu
+        ;;
+      2) uninstall_project; pause_menu ;;
+      3) change_port; pause_menu ;;
+      4) restart_service; pause_menu ;;
+      5) configure_cookies; pause_menu ;;
+      6) change_access_mode; pause_menu ;;
+      7) show_status; pause_menu ;;
+      8) show_logs; pause_menu ;;
+      0) printf '再见。\n'; exit 0 ;;
+      *) printf '\n无效选项，请输入 0 到 8。\n'; pause_menu ;;
+    esac
+  done
+}
+
+if [[ "$ACTION" == "menu" ]]; then
+  menu_loop
+else
+  install_project
 fi
-exec "$python_cmd" scripts/bootstrap.py "${START_ARGS[@]}" </dev/null

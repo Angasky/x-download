@@ -267,6 +267,7 @@ def main() -> None:
     parser.add_argument("--no-browser", action="store_true", help="启动后不打开浏览器")
     parser.add_argument("--host", help="设置并保存监听地址，例如 0.0.0.0")
     parser.add_argument("--port", type=int, help="设置并保存监听端口")
+    parser.add_argument("--skip-cookie-prompt", action="store_true", help="不询问 Cookie")
     args = parser.parse_args()
 
     os.chdir(str(ROOT))
@@ -292,7 +293,8 @@ def main() -> None:
         save_app_config(host, port, open_browser)
         print(f"[ok] 服务监听配置已保存：{host}:{port}")
 
-    prompt_cookies(reconfigure=args.reconfigure)
+    if not args.skip_cookie_prompt:
+        prompt_cookies(reconfigure=args.reconfigure)
     if args.no_start:
         print("安装完成。下次直接运行 start.bat / start.ps1 / ./start.sh")
         return
