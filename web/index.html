@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>x-download · 视频解析</title>
+  <link rel="icon" href="/assets/x-download-mark.svg" type="image/svg+xml" />
   <style>
     :root {
       color-scheme: dark;
@@ -40,6 +41,7 @@
       padding: 72px 0 56px;
     }
     .hero { max-width: 760px; margin-bottom: 32px; }
+    .hero-logo { display:block; width:min(350px,78vw); height:auto; margin:0 0 24px; }
     .eyebrow {
       display: inline-flex;
       align-items: center;
@@ -221,8 +223,15 @@
     .caption-label, .section-kicker { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 650; }
     .media-shell { position: relative; background: #030406; border-block: 1px solid var(--line); }
     video, img.cover { width: 100%; max-height: 590px; display: block; background: #000; object-fit: contain; }
-    .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 2px; padding: 2px; }
-    .gallery img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; }
+    .gallery-head { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 20px; border-bottom:1px solid var(--line); color:var(--muted); font-size:12px; }
+    .gallery-head strong { color:var(--ink); font-size:14px; }
+    .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; padding: 8px; }
+    .gallery-item { position:relative; min-width:0; margin:0; overflow:hidden; border:1px solid var(--line); border-radius:13px; background:#080a0f; }
+    .gallery-item img { width: 100%; aspect-ratio: 3 / 4; display:block; object-fit: cover; transition:transform .25s ease; }
+    .gallery-item:hover img { transform:scale(1.015); }
+    .gallery-index { position:absolute; top:10px; left:10px; padding:5px 8px; border:1px solid rgba(255,255,255,.14); border-radius:7px; background:rgba(8,10,16,.78); color:#fff; font-size:11px; backdrop-filter:blur(10px); }
+    .gallery-download { position:absolute; right:10px; bottom:10px; left:10px; display:flex; align-items:center; justify-content:center; min-height:40px; border:1px solid rgba(255,255,255,.18); border-radius:9px; background:rgba(13,15,23,.9); color:#fff; font-size:12px; font-weight:750; text-decoration:none; box-shadow:0 10px 28px rgba(0,0,0,.38); backdrop-filter:blur(12px); transition:background .18s,transform .18s; }
+    .gallery-download:hover { background:linear-gradient(135deg,var(--accent),#6e59ef); transform:translateY(-1px); }
     .download-panel { padding: 22px 24px 24px; }
     .section-head { display: flex; align-items: end; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
     .section-head h3 { margin: 0; font-size: 16px; }
@@ -244,6 +253,7 @@
       transition: border-color 0.18s, background 0.18s, transform 0.18s;
     }
     .quality-option:hover { border-color: rgba(139, 120, 255, 0.55); transform: translateY(-1px); }
+    .quality-option:disabled { opacity:.45; cursor:not-allowed; transform:none; }
     .quality-option.active { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px rgba(139, 120, 255, 0.14); }
     .quality-option.active::after { position: absolute; top: 10px; right: 11px; color: var(--accent-strong); font-size: 13px; content: "✓"; }
     .quality-option > span { padding-right: 18px; font-size: 14px; font-weight: 750; }
@@ -325,7 +335,8 @@
 <body>
   <main>
     <header class="hero">
-      <div class="eyebrow">x-download media toolkit</div>
+      <img class="hero-logo" src="/assets/x-download-logo.svg" alt="x-download" />
+      <div class="eyebrow">多平台媒体工具箱</div>
       <h1>一个链接，<br /><span>保存你需要的内容</span></h1>
       <p>粘贴视频或图集链接，即刻查看作品信息、可用清晰度与文件大小，并下载适合你的版本。</p>
       <div class="platforms" aria-label="支持的平台">
@@ -420,10 +431,11 @@
       }
     }
 
-    function streamUrl(u, download, format) {
+    function streamUrl(u, download, format, filename) {
       const params = new URLSearchParams({ url: u });
       const headers = format?.http_headers || {};
       if (download) params.set("download", "1");
+      if (filename) params.set("filename", filename);
       if (headers.Referer) params.set("referer", headers.Referer);
       if (headers["User-Agent"]) params.set("user_agent", headers["User-Agent"]);
       if (headers.Origin) params.set("origin", headers.Origin);
@@ -627,7 +639,11 @@
       let selectedFormat = formats[0];
       const selectedPlay = formats[0]?.url || play;
       const media = images.length
-        ? '<div class="gallery">' + images.map((u) => '<img src="' + escapeHtml(u) + '" alt="" referrerpolicy="no-referrer" />').join("") + "</div>"
+        ? '<div class="gallery-head"><strong>作品图集</strong><span>共 ' + images.length + ' 张 · 可逐张下载原图</span></div><div class="gallery">' + images.map((u, index) =>
+            '<figure class="gallery-item"><img src="' + escapeHtml(u) + '" alt="图集第 ' + (index + 1) + ' 张" loading="lazy" referrerpolicy="no-referrer" />' +
+            '<span class="gallery-index">' + (index + 1) + ' / ' + images.length + '</span>' +
+            '<a class="gallery-download" href="' + escapeHtml(streamUrl(u, true, null, "douyin-image-" + String(index + 1).padStart(2, "0"))) + '">下载第 ' + (index + 1) + ' 张原图</a></figure>'
+          ).join("") + "</div>"
         : selectedPlay
           ? '<video id="preview-video" controls playsinline src="' + escapeHtml(streamUrl(selectedPlay, false, formats[0])) + '" poster="' + escapeHtml(d.thumbnail || "") + '"></video>'
           : (d.thumbnail ? '<img class="cover" src="' + escapeHtml(d.thumbnail) + '" alt="" referrerpolicy="no-referrer" />' : "");
@@ -638,17 +654,27 @@
             '<span>' + escapeHtml(format.label) + '</span><small>' + escapeHtml(format.detailsLabel) + "</small></button>"
           ).join("") + "</div></div>"
         : "";
-      const dl = selectedPlay
-        ? '<a id="download-selected" class="primary" href="' + escapeHtml(downloadUrl(d.source, formats[0])) + '">下载当前清晰度</a>'
+      const galleryPicker = images.length
+        ? '<div class="quality-picker"><div class="section-head"><div><h3>选择下载版本</h3><p>默认打包下载全部原图，也可只保存图集背景音乐</p></div></div><div class="quality-buttons">' +
+          '<button type="button" class="quality-option active" data-gallery-mode="images"><span>下载全部图片</span><small>' + images.length + ' 张原图 · ZIP 压缩包</small></button>' +
+          '<button type="button" class="quality-option" data-gallery-mode="audio"' + (d.audio_url ? "" : " disabled") + '><span>下载音频文件</span><small>' + escapeHtml(d.audio_url ? (d.audio_title || "图集背景音乐") : "未获取到背景音乐") + '</small></button></div></div>'
         : "";
-      const raw = selectedPlay ? '<a id="raw-selected" class="ghost" href="' + escapeHtml(selectedPlay) + '" target="_blank" rel="noreferrer">打开媒体直链</a>' : "";
+      const downloadPicker = images.length ? galleryPicker : qualityPicker;
+      const galleryArchiveUrl = "/api/gallery-download?source=" + encodeURIComponent(d.source || "");
+      const galleryAudioUrl = d.audio_url ? streamUrl(d.audio_url, true, null, "douyin-gallery-audio") : "";
+      const dl = images.length
+        ? '<a id="gallery-download-selected" class="primary" href="' + escapeHtml(galleryArchiveUrl) + '">下载全部图片</a>'
+        : selectedPlay
+          ? '<a id="download-selected" class="primary" href="' + escapeHtml(downloadUrl(d.source, formats[0])) + '">下载当前清晰度</a>'
+          : "";
+      const raw = !images.length && selectedPlay ? '<a id="raw-selected" class="ghost" href="' + escapeHtml(selectedPlay) + '" target="_blank" rel="noreferrer">打开媒体直链</a>' : "";
       result.innerHTML =
         '<div class="result-content"><div class="result-heading"><div class="meta">' +
         '<span class="platform-badge">' + escapeHtml(platformLabel(d.platform)) + "</span>" +
         '<h2>' + escapeHtml(title) + '</h2></div><span class="result-note">解析完成</span></div>' +
         authorCard + (stats ? '<div class="stats">' + stats + "</div>" : "") + caption + "</div>" +
         (media ? '<div class="media-shell">' + media + "</div>" : "") +
-        '<div class="download-panel">' + qualityPicker + '<div class="actions">' + dl + raw + "</div></div>";
+        '<div class="download-panel">' + downloadPicker + '<div class="actions">' + dl + raw + "</div></div>";
       result.hidden = false;
 
       const selectedDownload = document.getElementById("download-selected");
@@ -659,6 +685,18 @@
           startProgressDownload(d.source, selectedFormat);
         });
       }
+
+      const galleryDownload = document.getElementById("gallery-download-selected");
+      const galleryButtons = result.querySelectorAll("[data-gallery-mode]");
+      galleryButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          if (button.disabled || !galleryDownload) return;
+          galleryButtons.forEach((item) => item.classList.toggle("active", item === button));
+          const audioMode = button.dataset.galleryMode === "audio";
+          galleryDownload.href = audioMode ? galleryAudioUrl : galleryArchiveUrl;
+          galleryDownload.textContent = audioMode ? "下载音频文件" : "下载全部图片";
+        });
+      });
 
       const qualityButtons = result.querySelectorAll("[data-quality-index]");
       qualityButtons.forEach((button) => {

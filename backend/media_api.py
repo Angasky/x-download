@@ -15,6 +15,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -65,6 +66,53 @@ def _pick_url(obj: Any) -> str:
     return ""
 
 
+def _attachment_filename(requested: str | None, media: str, target: str) -> str:
+    safe_name = re.sub(r"[^0-9A-Za-z._-]+", "-", requested or "").strip(".-")[:96]
+    media_type = media.split(";", 1)[0].strip().lower()
+    known_extensions = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+        "image/gif": ".gif",
+        "image/avif": ".avif",
+        "audio/mpeg": ".mp3",
+        "audio/mp4": ".m4a",
+        "audio/aac": ".aac",
+        "audio/x-m4a": ".m4a",
+    }
+    extension = known_extensions.get(media_type) or mimetypes.guess_extension(media_type) or Path(urllib.parse.urlparse(target).path).suffix
+    if not re.fullmatch(r"\.[0-9A-Za-z]{1,8}", extension or ""):
+        extension = ".mp4"
+    if safe_name:
+        return safe_name if re.search(r"\.[0-9A-Za-z]{1,8}$", safe_name) else safe_name + extension
+    return ("image" if media_type.startswith("image/") else "video") + extension
+
+
+def _build_gallery_archive(image_urls: list[str]) -> tuple[Path, Path]:
+    directory = Path(tempfile.mkdtemp(prefix="x-download-gallery-"))
+    archive = directory / "douyin-images.zip"
+    request_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    }
+    try:
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as bundle:
+            for index, image_url in enumerate(image_urls[:50], start=1):
+                request = urllib.request.Request(image_url, headers={**request_headers, "Referer": image_url})
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    filename = _attachment_filename(
+                        f"douyin-image-{index:02d}",
+                        response.headers.get("content-type", "image/jpeg"),
+                        image_url,
+                    )
+                    with bundle.open(filename, "w") as output:
+                        shutil.copyfileobj(response, output, length=128 * 1024)
+        return archive, directory
+    except Exception:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
+
+
 def _extract_aweme_id(url: str) -> str:
     m = re.search(r"(?:video|share/video)/(\d{19})", url)
     if m:
@@ -103,6 +151,11 @@ _YOUTUBE_COOKIE_HELP = (
 
 def _is_douyin(url: str) -> bool:
     return bool(_DOUYIN_DOMAINS.search(url))
+
+
+def _is_douyin_source(url: str) -> bool:
+    hostname = (urllib.parse.urlparse(_extract_url(url)).hostname or "").lower().rstrip(".")
+    return hostname in {"douyin.com", "iesdouyin.com"} or hostname.endswith((".douyin.com", ".iesdouyin.com"))
 
 
 def _is_tiktok(url: str) -> bool:
@@ -165,6 +218,9 @@ def _map_douk_detail(url: str, data: dict) -> dict:
     video = data.get("video") or {}
     if not isinstance(video, dict):
         video = {}
+    music = data.get("music") or {}
+    if not isinstance(music, dict):
+        music = {}
     duration_ms = video.get("duration") or data.get("duration") or 0
 
     formats: list[dict[str, Any]] = []
@@ -205,6 +261,7 @@ def _map_douk_detail(url: str, data: dict) -> dict:
         for image in data.get("images") or []
         if isinstance(image, dict) and (image_url := _pick_url(image))
     ]
+    audio_url = _pick_url(music.get("play_url"))
     if video_url and not formats:
         formats = [{"url": video_url, "quality": "default"}]
     if not video_url:
@@ -258,6 +315,8 @@ def _map_douk_detail(url: str, data: dict) -> dict:
         "source": url,
         "type": "image" if image_urls else "video",
         "images": image_urls,
+        "audio_url": audio_url,
+        "audio_title": music.get("title") or music.get("author") or "图集背景音乐",
         "video_data": video,
         "fallbackUrl": video_url,
         "formats": formats,
@@ -798,12 +857,35 @@ async def download_ytdlp_format(
     return await _prepare_ytdlp_download(source, selected_format, merge_audio=bool(merge_audio))
 
 
+@router.get("/api/gallery-download", include_in_schema=False)
+async def download_gallery(source: str = ""):
+    source = _extract_url(source)
+    if not source or not _is_douyin_source(source):
+        return JSONResponse({"error": "仅支持打包抖音图集"}, status_code=400)
+    try:
+        detail = await _douk_parse(source)
+        image_urls = [item for item in detail.get("images") or [] if isinstance(item, str) and item.startswith("http")]
+        if not image_urls:
+            return JSONResponse({"error": "该作品没有可下载的图片"}, status_code=404)
+        loop = asyncio.get_running_loop()
+        archive, directory = await loop.run_in_executor(_executor, _build_gallery_archive, image_urls)
+        return FileResponse(
+            archive,
+            media_type="application/zip",
+            filename="douyin-images.zip",
+            background=BackgroundTask(shutil.rmtree, directory, ignore_errors=True),
+        )
+    except Exception as error:
+        return JSONResponse({"error": f"图集打包失败：{_friendly_error(source, error)}"}, status_code=502)
+
+
 @router.get("/api/stream", include_in_schema=False)
 @router.head("/api/stream", include_in_schema=False)
 async def stream_media(
     request: Request,
     url: Optional[str] = None,
     download: int = 0,
+    filename: Optional[str] = None,
     referer: Optional[str] = None,
     user_agent: Optional[str] = None,
     origin: Optional[str] = None,
@@ -816,6 +898,7 @@ async def stream_media(
     return await _proxy_stream(
         target,
         download=bool(download),
+        filename=filename,
         referer=referer,
         user_agent=user_agent,
         origin=origin,
@@ -826,6 +909,7 @@ async def stream_media(
 async def _proxy_stream(
     target: str,
     download: bool = False,
+    filename: str | None = None,
     referer: str | None = None,
     user_agent: str | None = None,
     origin: str | None = None,
@@ -878,8 +962,9 @@ async def _proxy_stream(
         v = resp.headers.get(k)
         if v:
             out_headers[k] = v
-    if download and "Content-Disposition" not in out_headers:
-        out_headers["Content-Disposition"] = 'attachment; filename="video.mp4"'
+    if download:
+        requested_name = _attachment_filename(filename, media, target)
+        out_headers["Content-Disposition"] = f'attachment; filename="{requested_name}"'
 
     def iter_chunks():
         try:

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="112" viewBox="0 0 440 112" role="img" aria-labelledby="title desc">
+  <title id="title">x-download</title>
+  <desc id="desc">x-download 视频解析与下载服务标志</desc>
+  <defs>
+    <linearGradient id="brand" x1="14" y1="14" x2="99" y2="99" gradientUnits="userSpaceOnUse"><stop stop-color="#A99CFF"/><stop offset=".52" stop-color="#8B78FF"/><stop offset="1" stop-color="#55D6A9"/></linearGradient>
+    <linearGradient id="word" x1="132" y1="30" x2="392" y2="83" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#D9DCE7"/></linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="7" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect x="4" y="4" width="104" height="104" rx="29" fill="#141722" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <path d="M29 31 83 85M83 31 29 85" fill="none" stroke="url(#brand)" stroke-width="12" stroke-linecap="round" filter="url(#glow)"/>
+  <circle cx="56" cy="56" r="21" fill="#10121A" stroke="#FFFFFF" stroke-opacity=".16"/>
+  <path d="M56 40v28m0 0-10-10m10 10 10-10" fill="none" stroke="#F7F8FD" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="132" y="65" fill="url(#word)" font-family="Segoe UI, Arial, sans-serif" font-size="48" font-weight="760" letter-spacing="-2.2">x-download</text>
+  <text x="134" y="91" fill="#9299AA" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="650" letter-spacing="3.8">MEDIA TOOLKIT</text>
+</svg>
