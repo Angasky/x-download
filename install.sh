@@ -2,7 +2,21 @@
 set -Eeuo pipefail
 
 REPOSITORY_URL="https://github.com/Angasky/x-download.git"
-DEFAULT_INSTALL_DIR="${HOME}/x-download"
+USER_HOME="${HOME:-}"
+if [[ -z "$USER_HOME" ]] && command -v getent >/dev/null 2>&1; then
+  USER_HOME="$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6 || true)"
+fi
+if [[ -z "$USER_HOME" && -r /etc/passwd ]]; then
+  USER_HOME="$(awk -F: -v uid="$(id -u)" '$3 == uid {print $6; exit}' /etc/passwd)"
+fi
+if [[ -z "$USER_HOME" && "${EUID}" -eq 0 ]]; then
+  USER_HOME="/root"
+fi
+if [[ -z "$USER_HOME" ]]; then
+  printf '[error] 无法确定当前用户主目录，请先设置 HOME 环境变量。\n' >&2
+  exit 1
+fi
+DEFAULT_INSTALL_DIR="${USER_HOME}/x-download"
 INSTALL_DIR="${XDOWNLOAD_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 START_ARGS=("--no-browser" "--update-vendor")
 
@@ -80,7 +94,7 @@ find_python() {
 
 install_python() {
   command_exists curl || install_package curl
-  local uv_bin="${HOME}/.local/bin/uv"
+  local uv_bin="${USER_HOME}/.local/bin/uv"
   if ! command_exists uv && [[ ! -x "$uv_bin" ]]; then
     say "未检测到 Python 3.12+，正在安装独立 Python 运行环境" >&2
     local installer_dir
@@ -134,7 +148,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ "$(uname -s)" == "Linux" ]] || fail "此安装器仅用于 Linux。macOS 请克隆仓库后运行 ./start.sh。"
-[[ -n "$INSTALL_DIR" && "$INSTALL_DIR" != "/" && "$INSTALL_DIR" != "$HOME" ]] \
+[[ -n "$INSTALL_DIR" && "$INSTALL_DIR" != "/" && "$INSTALL_DIR" != "$USER_HOME" ]] \
   || fail "安装目录不安全：$INSTALL_DIR"
 
 say "检查系统依赖"
