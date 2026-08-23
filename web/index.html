@@ -6,209 +6,308 @@
   <title>x-download · 视频解析</title>
   <style>
     :root {
-      --bg: #12110f;
-      --panel: #1c1a17;
-      --line: #3a342c;
-      --ink: #f3ece3;
-      --muted: #9a9084;
-      --accent: #e07a3d;
-      --ok: #7dba6f;
-      --bad: #d36b6b;
+      color-scheme: dark;
+      --bg: #080a10;
+      --surface: rgba(19, 22, 33, 0.88);
+      --surface-strong: #171a25;
+      --surface-soft: #10131c;
+      --line: rgba(255, 255, 255, 0.09);
+      --line-strong: rgba(255, 255, 255, 0.16);
+      --ink: #f6f7fb;
+      --muted: #9299aa;
+      --accent: #8b78ff;
+      --accent-strong: #a99cff;
+      --accent-soft: rgba(139, 120, 255, 0.14);
+      --ok: #55d6a9;
+      --bad: #ff7b89;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
     }
     * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; }
+    html { min-width: 320px; background: var(--bg); }
+    body { margin: 0; min-height: 100vh; }
     body {
       font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
       background:
-        radial-gradient(1200px 500px at 10% -10%, #2a2118 0%, transparent 55%),
+        radial-gradient(900px 520px at 12% -12%, rgba(118, 84, 255, 0.24), transparent 62%),
+        radial-gradient(700px 500px at 92% 5%, rgba(29, 202, 166, 0.12), transparent 64%),
         var(--bg);
       color: var(--ink);
+      -webkit-font-smoothing: antialiased;
     }
     main {
-      max-width: 860px;
+      width: min(100% - 40px, 1040px);
       margin: 0 auto;
-      padding: 48px 20px 80px;
+      padding: 72px 0 56px;
+    }
+    .hero { max-width: 760px; margin-bottom: 32px; }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 18px;
+      color: var(--accent-strong);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--ok);
+      box-shadow: 0 0 16px var(--ok);
+      content: "";
     }
     header h1 {
-      margin: 0 0 8px;
-      font-size: 28px;
-      letter-spacing: 0.04em;
+      max-width: 700px;
+      margin: 0;
+      font-size: clamp(36px, 6vw, 62px);
+      line-height: 1.08;
+      letter-spacing: -0.045em;
     }
-    header p { margin: 0; color: var(--muted); }
-    .status {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin: 22px 0 28px;
+    header h1 span {
+      color: transparent;
+      background: linear-gradient(110deg, #b5aaff, #66e2c2);
+      background-clip: text;
+      -webkit-background-clip: text;
     }
-    .pill {
-      font-size: 12px;
-      padding: 4px 10px;
+    header p {
+      max-width: 650px;
+      margin: 18px 0 0;
+      color: #b3b8c6;
+      font-size: 17px;
+      line-height: 1.75;
+    }
+    .platforms { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+    .platforms span {
+      padding: 7px 11px;
       border: 1px solid var(--line);
       border-radius: 999px;
-      color: var(--muted);
+      background: rgba(255, 255, 255, 0.025);
+      color: #aeb4c2;
+      font-size: 12px;
     }
-    .pill.ok { color: var(--ok); border-color: #355534; }
-    .pill.bad { color: var(--bad); border-color: #5a3333; }
+    .workspace {
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+    .workspace-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    .workspace-title { font-size: 14px; font-weight: 700; }
+    .status { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 9px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.035);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .pill::before { width: 5px; height: 5px; border-radius: 50%; background: currentColor; content: ""; }
+    .pill.ok { color: var(--ok); background: rgba(85, 214, 169, 0.08); }
+    .pill.bad { color: var(--bad); background: rgba(255, 123, 137, 0.09); }
     form {
       display: grid;
       grid-template-columns: 1fr auto;
-      gap: 10px;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      padding: 12px;
-      border-radius: 14px;
+      gap: 8px;
+      padding: 7px;
+      border: 1px solid var(--line-strong);
+      border-radius: 15px;
+      background: var(--surface-soft);
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
+    form:focus-within { border-color: rgba(139, 120, 255, 0.7); box-shadow: 0 0 0 4px var(--accent-soft); }
     input[type="url"], input[type="text"] {
       width: 100%;
       background: transparent;
       border: 0;
       color: var(--ink);
-      font-size: 16px;
+      font-size: 15px;
       outline: none;
-      padding: 10px 8px;
+      padding: 13px 14px;
     }
+    input::placeholder { color: #666d7e; }
     button {
-      background: var(--accent);
-      color: #1a120c;
       border: 0;
-      border-radius: 10px;
-      padding: 10px 18px;
-      font-weight: 700;
+      font: inherit;
       cursor: pointer;
     }
-    button:disabled { opacity: 0.55; cursor: wait; }
-    .hint { margin-top: 12px; color: var(--muted); font-size: 13px; }
-    .error {
-      margin-top: 18px;
-      padding: 12px 14px;
-      border: 1px solid #5a3333;
-      background: #2a1818;
+    #go {
+      min-width: 116px;
+      padding: 11px 20px;
       border-radius: 10px;
-      color: #f0c9c9;
+      background: linear-gradient(135deg, var(--accent), #6e59ef);
+      color: white;
+      font-weight: 750;
+      box-shadow: 0 8px 24px rgba(111, 87, 239, 0.24);
+      transition: transform 0.18s, filter 0.18s;
     }
+    #go:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.08); }
+    #go:disabled { opacity: 0.68; cursor: wait; }
+    .hint { display: flex; gap: 7px; margin: 12px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .hint::before { content: "ⓘ"; color: var(--accent-strong); }
+    .error {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border: 1px solid rgba(255, 123, 137, 0.25);
+      border-radius: 12px;
+      background: rgba(255, 123, 137, 0.08);
+      color: #ffc1c8;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .error strong { display: block; margin-bottom: 2px; color: #fff0f2; font-size: 14px; }
+    .result[hidden] { display: none; }
     .result {
-      margin-top: 28px;
-      background: var(--panel);
+      margin-top: 22px;
       border: 1px solid var(--line);
-      border-radius: 16px;
+      border-radius: 22px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
       overflow: hidden;
+      animation: reveal 0.35s ease both;
     }
-    .meta { padding: 18px 20px 8px; }
-    .meta h2 { margin: 0 0 6px; font-size: 18px; }
-    .meta .sub { color: var(--muted); font-size: 13px; }
+    @keyframes reveal { from { opacity: 0; transform: translateY(8px); } }
+    .result-content { padding: 24px 24px 20px; }
+    .result-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; }
+    .meta { min-width: 0; }
+    .meta h2 { margin: 8px 0 0; font-size: clamp(20px, 3vw, 28px); line-height: 1.35; letter-spacing: -0.025em; }
+    .platform-badge {
+      display: inline-flex;
+      padding: 5px 9px;
+      border: 1px solid rgba(139, 120, 255, 0.22);
+      border-radius: 7px;
+      background: var(--accent-soft);
+      color: #b9afff;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .result-note { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
     .author-card {
       display: flex;
+      align-items: center;
       gap: 12px;
-      align-items: flex-start;
-      margin: 10px 20px 18px;
-      padding: 14px;
-      background: #171512;
-      border: 1px solid var(--line);
-      border-radius: 12px;
+      margin-top: 18px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
     }
-    .avatar {
-      width: 52px;
-      height: 52px;
-      flex: 0 0 52px;
-      border-radius: 50%;
-      object-fit: cover;
-      background: #27231e;
-    }
+    .avatar { width: 46px; height: 46px; flex: 0 0 46px; border: 1px solid var(--line); border-radius: 50%; object-fit: cover; background: #252936; }
+    .avatar-placeholder { display: grid; place-items: center; color: var(--muted); font-weight: 700; }
     .author-info { min-width: 0; flex: 1; }
-    .author-name { font-weight: 700; }
+    .author-name { font-size: 14px; font-weight: 750; }
     .author-name a { color: var(--ink); text-decoration: none; }
-    .author-id { margin-top: 3px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-    .author-signature { margin-top: 8px; color: #c6bcb0; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
-      gap: 8px;
-      padding: 0 20px 18px;
-    }
-    .stat { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #171512; }
-    .stat strong { display: block; font-size: 17px; color: var(--ink); }
-    .stat span { color: var(--muted); font-size: 12px; }
-    .caption { margin: 0 20px 18px; color: #d8cec2; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
-    .caption-label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 12px; }
-    video, img.cover {
-      width: 100%;
-      max-height: 520px;
-      background: #000;
-      display: block;
-    }
-    .quality-picker {
-      display: block;
-      padding: 14px 20px 0;
-    }
-    .quality-picker .quality-title { display: block; margin-bottom: 8px; color: var(--muted); font-size: 13px; }
-    .quality-buttons { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+    .author-name a:hover { color: var(--accent-strong); }
+    .author-id { margin-top: 3px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+    .author-signature { margin-top: 7px; color: #afb5c3; font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-top: 20px; }
+    .stat { padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255, 255, 255, 0.025); }
+    .stat strong { display: block; font-size: 17px; line-height: 1.2; }
+    .stat span { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+    .caption { margin-top: 18px; padding: 15px 16px; border-radius: 12px; background: rgba(255, 255, 255, 0.025); color: #c7cbd5; font-size: 13px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .caption-label, .section-kicker { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 650; }
+    .media-shell { position: relative; background: #030406; border-block: 1px solid var(--line); }
+    video, img.cover { width: 100%; max-height: 590px; display: block; background: #000; object-fit: contain; }
+    .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 2px; padding: 2px; }
+    .gallery img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; }
+    .download-panel { padding: 22px 24px 24px; }
+    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
+    .section-head h3 { margin: 0; font-size: 16px; }
+    .section-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+    .quality-buttons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
     .quality-option {
+      position: relative;
       display: flex;
+      min-width: 0;
       flex-direction: column;
       align-items: flex-start;
-      gap: 3px;
-      color: var(--ink);
-      background: #171512;
+      gap: 5px;
+      padding: 12px 13px;
       border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 9px 12px;
-      font-weight: 600;
+      border-radius: 12px;
+      background: var(--surface-soft);
+      color: var(--ink);
+      text-align: left;
+      transition: border-color 0.18s, background 0.18s, transform 0.18s;
     }
-    .quality-option:hover { border-color: #72543c; }
-    .quality-option.active { color: #1a120c; background: var(--accent); border-color: var(--accent); }
-    .quality-option > span { font-size: 15px; }
-    .quality-option small { color: var(--muted); font-size: 11px; font-weight: 500; }
-    .quality-option.active small { color: #4b2a17; }
+    .quality-option:hover { border-color: rgba(139, 120, 255, 0.55); transform: translateY(-1px); }
+    .quality-option.active { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px rgba(139, 120, 255, 0.14); }
+    .quality-option.active::after { position: absolute; top: 10px; right: 11px; color: var(--accent-strong); font-size: 13px; content: "✓"; }
+    .quality-option > span { padding-right: 18px; font-size: 14px; font-weight: 750; }
+    .quality-option small { max-width: 100%; color: var(--muted); font-size: 10px; line-height: 1.45; font-weight: 500; overflow-wrap: anywhere; }
+    .quality-option.active small { color: #aaa1dc; }
+    .actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 16px; }
+    .actions a { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 10px 16px; border-radius: 10px; background: var(--ink); color: #11131a; font-size: 13px; font-weight: 750; text-decoration: none; transition: transform 0.18s, filter 0.18s; }
+    .actions a:hover { transform: translateY(-1px); filter: brightness(0.92); }
+    .actions a.primary { background: linear-gradient(135deg, var(--accent), #6e59ef); color: white; }
+    .actions a.ghost { border: 1px solid var(--line-strong); background: transparent; color: #c6cad4; }
+    footer { display: flex; justify-content: space-between; gap: 24px; margin-top: 28px; color: #696f7e; font-size: 11px; line-height: 1.7; }
+    footer a { color: #9299aa; text-decoration: none; }
+    footer a:hover { color: var(--ink); }
+    @media (max-width: 760px) {
+      main { width: min(100% - 28px, 1040px); padding-top: 46px; }
+      .workspace-head { align-items: flex-start; flex-direction: column; }
+      .status { justify-content: flex-start; }
+      .quality-buttons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
     @media (max-width: 520px) {
+      main { width: min(100% - 20px, 1040px); padding: 34px 0 32px; }
+      header h1 { font-size: 37px; }
+      header p { font-size: 14px; }
+      .workspace { padding: 14px; border-radius: 17px; }
+      form { grid-template-columns: 1fr; }
+      #go { width: 100%; }
+      .result { border-radius: 17px; }
+      .result-content, .download-panel { padding: 18px 16px; }
+      .result-heading { flex-direction: column; gap: 8px; }
+      .result-note { display: none; }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .quality-buttons { grid-template-columns: 1fr; }
+      .actions a { flex: 1 1 100%; }
+      footer { flex-direction: column; gap: 8px; }
     }
-    .actions {
-      display: flex;
-      gap: 10px;
-      padding: 16px 20px 20px;
-      flex-wrap: wrap;
-    }
-    .actions a {
-      color: #1a120c;
-      background: var(--ink);
-      text-decoration: none;
-      padding: 9px 14px;
-      border-radius: 10px;
-      font-weight: 700;
-      font-size: 14px;
-    }
-    .actions a.ghost {
-      background: transparent;
-      color: var(--ink);
-      border: 1px solid var(--line);
-    }
-    .gallery {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-      gap: 8px;
-      padding: 0 20px 20px;
-    }
-    .gallery img { width: 100%; border-radius: 8px; }
-    footer { margin-top: 40px; color: var(--muted); font-size: 12px; line-height: 1.6; }
   </style>
 </head>
 <body>
   <main>
-    <header>
-      <h1>x-download</h1>
-      <p>粘贴抖音 / TikTok / YouTube / Bilibili / X 等链接，解析无水印直链。</p>
+    <header class="hero">
+      <div class="eyebrow">x-download media toolkit</div>
+      <h1>一个链接，<br /><span>保存你需要的内容</span></h1>
+      <p>粘贴视频或图集链接，即刻查看作品信息、可用清晰度与文件大小，并下载适合你的版本。</p>
+      <div class="platforms" aria-label="支持的平台">
+        <span>抖音</span><span>TikTok</span><span>YouTube</span><span>哔哩哔哩</span><span>X</span><span>更多 yt-dlp 平台</span>
+      </div>
     </header>
-    <div class="status" id="status"></div>
-    <form id="form">
-      <input id="url" type="url" placeholder="https://v.douyin.com/..." required autocomplete="off" />
-      <button type="submit" id="go">解析</button>
-    </form>
-    <p class="hint">抖音需要在启动时配置网页 Cookie。首次运行请用 start.bat / start.sh。</p>
+    <section class="workspace" aria-label="视频链接解析">
+      <div class="workspace-head">
+        <span class="workspace-title">粘贴作品链接</span>
+        <div class="status" id="status" aria-label="服务状态"></div>
+      </div>
+      <form id="form">
+        <input id="url" type="url" placeholder="在这里粘贴抖音、B站、YouTube 等作品链接" required autocomplete="off" aria-label="作品链接" />
+        <button type="submit" id="go">开始解析</button>
+      </form>
+      <p class="hint">链接只用于本次解析；部分平台需要先在启动配置中填写 Cookie。</p>
+    </section>
     <div id="msg"></div>
     <section class="result" id="result" hidden></section>
     <footer>
-      抖音解析使用 JoeanAmier/TikTokDownloader（DouK-Downloader），其他平台使用 tikwm / yt-dlp。仅供个人学习与备份自己有权使用的内容。
+      <span>请仅下载和使用你拥有权利的内容。</span>
+      <span>Powered by DouK-Downloader · tikwm · yt-dlp</span>
     </footer>
   </main>
   <script>
@@ -233,16 +332,15 @@
         const h = await r.json();
         statusEl.innerHTML = "";
         statusEl.append(
-          pill(h.douk_downloader ? "DouK-Downloader 已安装" : "DouK-Downloader 缺失", h.douk_downloader ? "ok" : "bad"),
-          pill(h.yt_dlp ? "yt-dlp 就绪" : "yt-dlp 未安装", h.yt_dlp ? "ok" : "bad"),
-          pill(h.douyin_cookie ? "抖音 Cookie 已配置" : "未配置抖音 Cookie", h.douyin_cookie ? "ok" : "bad"),
-          pill(h.tiktok_cookie ? "TikTok Cookie" : "TikTok Cookie 可选", h.tiktok_cookie ? "ok" : ""),
-          pill(h.ytdlp_cookies_file ? "yt-dlp cookies" : "yt-dlp cookies 可选", h.ytdlp_cookies_file ? "ok" : ""),
-          pill(h.ffmpeg ? "ffmpeg" : "无 ffmpeg", h.ffmpeg ? "ok" : "")
+          pill(h.douk_downloader ? "抖音解析可用" : "抖音组件缺失", h.douk_downloader ? "ok" : "bad"),
+          pill(h.yt_dlp ? "通用解析可用" : "通用组件缺失", h.yt_dlp ? "ok" : "bad"),
+          pill(h.douyin_cookie ? "抖音已配置" : "抖音未配置", h.douyin_cookie ? "ok" : "bad"),
+          pill(h.ytdlp_cookies_file ? "YouTube 已配置" : "YouTube Cookie 可选", h.ytdlp_cookies_file ? "ok" : ""),
+          pill(h.ffmpeg ? "音视频合并可用" : "未安装 ffmpeg", h.ffmpeg ? "ok" : "")
         );
       } catch {
         statusEl.innerHTML = "";
-        statusEl.append(pill("后端未启动", "bad"));
+        statusEl.append(pill("服务连接失败", "bad"));
       }
     }
 
@@ -275,7 +373,7 @@
       msg.innerHTML = "";
       result.hidden = true;
       go.disabled = true;
-      go.textContent = "解析中";
+      go.textContent = "正在解析…";
       try {
         const r = await fetch("/api/parse", {
           method: "POST",
@@ -286,16 +384,16 @@
         if (!data.success) throw new Error(data.error || "解析失败");
         render(data.data);
       } catch (err) {
-        msg.innerHTML = '<div class="error">' + (err.message || err) + "</div>";
+        msg.innerHTML = '<div class="error"><strong>暂时无法完成解析</strong>' + escapeHtml(err.message || err) + "</div>";
       } finally {
         parsing = false;
         go.disabled = false;
-        go.textContent = "解析";
+        go.textContent = "开始解析";
       }
     });
 
     function render(d) {
-      const title = d.title || d.desc || "未命名";
+      const title = d.title || d.desc || "未命名作品";
       const play = d.url || "";
       const images = d.images || [];
       const isTikTok = String(d.platform || "").toLowerCase().includes("tiktok");
@@ -307,10 +405,12 @@
       const identifiers = [d.unique_id ? "@" + d.unique_id : "", d.uid ? "UID: " + d.uid : ""].filter(Boolean).join(" · ");
       const authorCard = (d.uploader || d.unique_id || d.uid || avatar || d.author_signature)
         ? '<div class="author-card">' +
-          (avatar ? '<img class="avatar" src="' + escapeHtml(avatar) + '" alt="作者头像" referrerpolicy="no-referrer" />' : "") +
+          (avatar
+            ? '<img class="avatar" src="' + escapeHtml(avatar) + '" alt="作者头像" referrerpolicy="no-referrer" />'
+            : '<div class="avatar avatar-placeholder" aria-hidden="true">' + escapeHtml(authorName.slice(0, 1)) + "</div>") +
           '<div class="author-info"><div class="author-name">' + authorLinkStart + escapeHtml(authorName) + authorLinkEnd + "</div>" +
           (identifiers ? '<div class="author-id">' + escapeHtml(identifiers) + "</div>" : "") +
-          (d.author_signature ? '<div class="author-signature"><span class="caption-label">主页简介</span>' + escapeHtml(d.author_signature) + "</div>" : "") +
+          (d.author_signature ? '<div class="author-signature">' + escapeHtml(d.author_signature) + "</div>" : "") +
           "</div></div>"
         : "";
       const statSource = [
@@ -325,7 +425,7 @@
         .map(([label, value]) => '<div class="stat"><strong title="' + escapeHtml(value) + '">' + formatCount(value) + '</strong><span>' + label + "</span></div>")
         .join("");
       const caption = d.desc
-        ? '<div class="caption"><span class="caption-label">视频文案</span>' + escapeHtml(d.desc) + "</div>"
+        ? '<div class="caption"><span class="caption-label">作品文案</span>' + escapeHtml(d.desc) + "</div>"
         : "";
       const formats = normalizeFormats(d.formats, play, d.duration, d.platform, d.http_headers);
       const selectedPlay = formats[0]?.url || play;
@@ -335,21 +435,23 @@
           ? '<video id="preview-video" controls playsinline src="' + escapeHtml(streamUrl(selectedPlay, false, formats[0])) + '" poster="' + escapeHtml(d.thumbnail || "") + '"></video>'
           : (d.thumbnail ? '<img class="cover" src="' + escapeHtml(d.thumbnail) + '" alt="" referrerpolicy="no-referrer" />' : "");
       const qualityPicker = formats.length > 0
-        ? '<div class="quality-picker"><span class="quality-title">选择分辨率 / 清晰度</span><div class="quality-buttons">' +
+        ? '<div class="quality-picker"><div class="section-head"><div><h3>选择下载版本</h3><p>切换清晰度可同步更新预览与下载文件</p></div></div><div class="quality-buttons">' +
           formats.map((format, index) =>
             '<button type="button" class="quality-option' + (index === 0 ? " active" : "") + '" data-quality-index="' + index + '">' +
             '<span>' + escapeHtml(format.label) + '</span><small>' + escapeHtml(format.detailsLabel) + "</small></button>"
           ).join("") + "</div></div>"
         : "";
       const dl = selectedPlay
-        ? '<a id="download-selected" href="' + escapeHtml(downloadUrl(d.source, formats[0])) + '">下载所选清晰度</a>'
+        ? '<a id="download-selected" class="primary" href="' + escapeHtml(downloadUrl(d.source, formats[0])) + '">下载当前清晰度</a>'
         : "";
-      const raw = selectedPlay ? '<a id="raw-selected" class="ghost" href="' + escapeHtml(selectedPlay) + '" target="_blank" rel="noreferrer">直链</a>' : "";
+      const raw = selectedPlay ? '<a id="raw-selected" class="ghost" href="' + escapeHtml(selectedPlay) + '" target="_blank" rel="noreferrer">打开媒体直链</a>' : "";
       result.innerHTML =
-        '<div class="meta"><h2>' + escapeHtml(title) + "</h2>" +
-        '<div class="sub">' + escapeHtml(d.platform || "") + "</div></div>" +
-        authorCard + (stats ? '<div class="stats">' + stats + "</div>" : "") + caption +
-        media + qualityPicker + '<div class="actions">' + dl + raw + "</div>";
+        '<div class="result-content"><div class="result-heading"><div class="meta">' +
+        '<span class="platform-badge">' + escapeHtml(platformLabel(d.platform)) + "</span>" +
+        '<h2>' + escapeHtml(title) + '</h2></div><span class="result-note">解析完成</span></div>' +
+        authorCard + (stats ? '<div class="stats">' + stats + "</div>" : "") + caption + "</div>" +
+        (media ? '<div class="media-shell">' + media + "</div>" : "") +
+        '<div class="download-panel">' + qualityPicker + '<div class="actions">' + dl + raw + "</div></div>";
       result.hidden = false;
 
       const qualityButtons = result.querySelectorAll("[data-quality-index]");
@@ -388,7 +490,7 @@
           ? [item.width, item.height].filter(Boolean).join(" × ")
           : "";
         const audioNote = item.acodec === "none"
-          ? (item.format_id ? "下载自动合并音频" : "仅视频")
+          ? (item.format_id ? "下载时自动合并声音" : "不含声音")
           : "";
         return {
           ...item,
@@ -403,7 +505,7 @@
       if (fallbackUrl && !seen.has(fallbackUrl)) {
         formats.unshift({
           url: fallbackUrl,
-          label: "推荐清晰度",
+          label: "推荐版本",
           sizeLabel: "大小未知",
           detailsLabel: "大小未知",
           http_headers: fallbackHeaders || {},
@@ -414,10 +516,26 @@
 
     function formatLabel(format) {
       const dimensions = [Number(format.width) || 0, Number(format.height) || 0].filter(Boolean);
-      const parts = dimensions.length ? [Math.min(...dimensions) + "P"] : [];
+      const height = dimensions.length ? normalizeResolution(Math.min(...dimensions)) : 0;
+      const parts = height ? [height + "P"] : [];
       if (!dimensions.length && format.quality && format.quality !== "default") parts.push(format.quality);
-      if (format.fps) parts.push(format.fps + " FPS");
-      return parts.join(" · ") || "默认清晰度";
+      if (format.fps) parts.push(Math.round(Number(format.fps)) + " FPS");
+      return parts.join(" · ") || "默认版本";
+    }
+
+    function normalizeResolution(height) {
+      const standards = [2160, 1440, 1080, 720, 480, 360, 240];
+      return standards.find((value) => Math.abs(value - height) <= Math.max(8, value * 0.015)) || height;
+    }
+
+    function platformLabel(platform) {
+      const value = String(platform || "").toLowerCase();
+      if (value.includes("douyin")) return "抖音";
+      if (value.includes("bilibili")) return "哔哩哔哩";
+      if (value.includes("youtube")) return "YouTube";
+      if (value.includes("tiktok")) return "TikTok";
+      if (value === "x" || value.includes("twitter")) return "X";
+      return platform || "已识别平台";
     }
 
     function formatGroupKey(format) {
