@@ -81,7 +81,7 @@ flowchart LR
 - 能够访问目标网站的网络
 - ffmpeg（可选但推荐，用于合并独立视频轨与音频轨）
 
-<details open>
+<details>
 <summary><b>Windows</b></summary>
 
 双击 `start.bat`，或在终端执行：
@@ -174,7 +174,7 @@ ytdlp_cookies_file: "Netscape cookies.txt 的绝对路径，可选"
 
 修改 Cookie 后请重启服务。
 
-<details open>
+<details>
 <summary><b>抖音 Cookie 获取方法</b></summary>
 
 1. 登录 [抖音网页版](https://www.douyin.com/)。
