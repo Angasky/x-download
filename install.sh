@@ -182,7 +182,7 @@ chmod +x start.sh install.sh
 printf '安装目录：%s\n' "$INSTALL_DIR"
 printf '访问地址：http://127.0.0.1:18111/\n'
 
-if exec 3</dev/tty 2>/dev/null; then
+if { exec 3</dev/tty; } 2>/dev/null; then
   exec "$python_cmd" scripts/bootstrap.py "${START_ARGS[@]}" <&3
 fi
 exec "$python_cmd" scripts/bootstrap.py "${START_ARGS[@]}"
