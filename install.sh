@@ -342,6 +342,7 @@ install_project() {
   fi
 
   printf '\n\033[1;33m以后只需输入 xd，即可再次打开 Mxioc 管理菜单。\033[0m\n'
+  printf '如果当前终端暂未识别，请先执行：hash -r\n'
 }
 
 change_port() {
@@ -478,6 +479,10 @@ EOF
 menu_loop() {
   [[ "$HAS_TTY" -eq 1 ]] || fail "菜单需要交互终端。无人值守安装请使用 --public 或 --local。"
   local choice=""
+  if [[ -d "$INSTALL_DIR/.git" && -f "$INSTALL_DIR/install.sh" ]]; then
+    chmod +x "$INSTALL_DIR/install.sh"
+    install_xd_command
+  fi
   while true; do
     show_menu
     read_tty choice '请选择操作 [0-8]: ' || exit 0
