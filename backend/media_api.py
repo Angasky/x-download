@@ -145,9 +145,11 @@ _KUAISHOU_DOMAINS = re.compile(
 _YOUTUBE_DOMAINS = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
 _X_DOMAINS = re.compile(r"(^|\.)(x\.com|twitter\.com)$", re.IGNORECASE)
 _INSTAGRAM_DOMAINS = re.compile(r"(^|\.)(instagram\.com)$", re.IGNORECASE)
+_BILIBILI_DOMAINS = re.compile(r"(^|\.)(bilibili\.com|b23\.tv)$", re.IGNORECASE)
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _YOUTUBE_COOKIE_HELP = (
-    "请配置 COOKIE，教程可查看 README.md 或 yt-dlp Wiki："
+    "当前 YouTube Cookie 已失效或被 YouTube 拒绝，请重新导出 COOKIE；"
+    "教程可查看 README.md 或 yt-dlp Wiki："
     "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies"
 )
 
@@ -210,6 +212,11 @@ def _normalize_instagram_post_url(url: str) -> str:
     return f"https://www.instagram.com/{kind.lower()}/{shortcode}/"
 
 
+def _is_bilibili_source(url: str) -> bool:
+    hostname = (urllib.parse.urlparse(_extract_url(url)).hostname or "").lower().rstrip(".")
+    return bool(_BILIBILI_DOMAINS.search(hostname))
+
+
 def _friendly_error(url: str, error: Exception | str) -> str:
     message = _ANSI_ESCAPE.sub("", str(error)).strip()
     youtube_cookie_error = any(
@@ -219,6 +226,8 @@ def _friendly_error(url: str, error: Exception | str) -> str:
             "sign in to confirm you're not a bot",
             "use --cookies-from-browser or --cookies",
             "login_required",
+            "the page needs to be reloaded",
+            "this video is unavailable. error code: 152",
         )
     )
     if _YOUTUBE_DOMAINS.search(url) and youtube_cookie_error:
@@ -637,6 +646,109 @@ def _temporary_douyin_cookiefile() -> Path | None:
     return path
 
 
+def _bilibili_extract(url: str) -> dict:
+    source = _extract_url(url)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+        "Referer": "https://www.bilibili.com/",
+        "Accept": "application/json,text/plain,*/*",
+    }
+    if (urllib.parse.urlparse(source).hostname or "").lower().endswith("b23.tv"):
+        with urllib.request.urlopen(urllib.request.Request(source, headers=headers), timeout=20) as response:
+            source = response.geturl()
+    match = re.search(r"/video/(BV[0-9A-Za-z]+|av\d+)", urllib.parse.urlparse(source).path, re.IGNORECASE)
+    if not match:
+        raise RuntimeError("无法从哔哩哔哩链接提取 BV/AV 号")
+    video_id = match.group(1)
+    identity = {"bvid": video_id} if video_id.lower().startswith("bv") else {"aid": video_id[2:]}
+
+    def api(path: str, params: dict[str, Any]) -> dict:
+        request = urllib.request.Request(
+            f"https://api.bilibili.com{path}?{urllib.parse.urlencode(params)}",
+            headers=headers,
+        )
+        with urllib.request.urlopen(request, timeout=25) as response:
+            payload = json.load(response)
+        if payload.get("code") != 0 or not isinstance(payload.get("data"), dict):
+            raise RuntimeError(payload.get("message") or "哔哩哔哩 API 返回异常")
+        return payload["data"]
+
+    detail = api("/x/web-interface/view", identity)
+    cid = detail.get("cid") or ((detail.get("pages") or [{}])[0].get("cid"))
+    if not cid:
+        raise RuntimeError("哔哩哔哩作品缺少 CID")
+    play = api(
+        "/x/player/playurl",
+        {**identity, "cid": cid, "qn": 127, "fnval": 0, "fourk": 1, "platform": "html5"},
+    )
+    qualities = play.get("accept_quality") or [play.get("quality")]
+    descriptions = play.get("accept_description") or []
+    quality_names = {quality: descriptions[index] for index, quality in enumerate(qualities) if index < len(descriptions)}
+    heights = {127: 2160, 126: 2160, 125: 1080, 120: 2160, 116: 1080, 112: 1080, 80: 1080, 74: 720, 64: 720, 32: 480, 16: 360, 6: 240}
+    formats: list[dict[str, Any]] = []
+    seen_qualities: set[int] = set()
+    for requested_quality in qualities:
+        if not requested_quality or requested_quality in seen_qualities:
+            continue
+        rendition = api(
+            "/x/player/playurl",
+            {**identity, "cid": cid, "qn": requested_quality, "fnval": 0, "fourk": 1, "platform": "html5"},
+        )
+        actual_quality = int(rendition.get("quality") or requested_quality)
+        if actual_quality in seen_qualities:
+            continue
+        media = next((item for item in rendition.get("durl") or [] if isinstance(item, dict) and item.get("url")), None)
+        if not media:
+            continue
+        seen_qualities.add(actual_quality)
+        formats.append(
+            {
+                "url": media["url"],
+                "format_id": f"bili-{actual_quality}",
+                "quality": quality_names.get(actual_quality) or f"清晰度 {actual_quality}",
+                "ext": "mp4",
+                "width": None,
+                "height": heights.get(actual_quality),
+                "fps": 60 if actual_quality in {74, 116} else 30,
+                "vcodec": "h264",
+                "acodec": "aac",
+                "filesize": media.get("size"),
+                "http_headers": headers,
+            }
+        )
+    formats.sort(key=lambda item: item.get("height") or 0, reverse=True)
+    if not formats:
+        raise RuntimeError("哔哩哔哩 API 未返回可下载地址")
+    owner = detail.get("owner") or {}
+    stats = detail.get("stat") or {}
+    cover = detail.get("pic") or ""
+    if cover.startswith("//"):
+        cover = "https:" + cover
+    canonical_id = detail.get("bvid") or video_id
+    return {
+        "title": detail.get("title") or "哔哩哔哩视频",
+        "desc": detail.get("desc") or "",
+        "thumbnail": cover,
+        "duration": detail.get("duration") or 0,
+        "uploader": owner.get("name") or "",
+        "unique_id": owner.get("name") or "",
+        "uid": str(owner.get("mid") or ""),
+        "avatar": owner.get("face") or "",
+        "author_signature": "",
+        "profile_url": f"https://space.bilibili.com/{owner.get('mid')}" if owner.get("mid") else "",
+        "platform": "BiliBili",
+        "play_count": stats.get("view"),
+        "digg_count": stats.get("like"),
+        "comment_count": stats.get("reply"),
+        "collect_count": stats.get("favorite"),
+        "share_count": stats.get("share"),
+        "url": formats[0]["url"],
+        "http_headers": headers,
+        "source": f"https://www.bilibili.com/video/{canonical_id}/",
+        "formats": formats,
+    }
+
+
 def _instagram_extract(url: str) -> dict:
     source = _normalize_instagram_post_url(url)
     if yt_dlp is None:
@@ -897,6 +1009,9 @@ async def _parse_url(url: str) -> dict:
     if _is_kuaishou(url):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(_executor, _kuaishou_extract, url)
+    if _is_bilibili_source(url):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_executor, _bilibili_extract, url)
     if _is_instagram_source(url):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(_executor, _instagram_extract, url)
