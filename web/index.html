@@ -577,11 +577,28 @@
       const source = String(value || "").trim();
       try {
         const parsed = new URL(source);
-        if (!/(^|\.)(x\.com|twitter\.com)$/i.test(parsed.hostname)) return source;
-        const match = parsed.pathname.match(/^\/([^/]+)\/status\/(\d{2,20})(?:\/(?:photo|video)\/\d+)?\/?$/i);
-        return match ? "https://x.com/" + match[1] + "/status/" + match[2] + "/" : source;
+        if (/(^|\.)(x\.com|twitter\.com)$/i.test(parsed.hostname)) {
+          const match = parsed.pathname.match(/^\/([^/]+)\/status\/(\d{2,20})(?:\/(?:photo|video)\/\d+)?\/?$/i);
+          return match ? "https://x.com/" + match[1] + "/status/" + match[2] + "/" : source;
+        }
+        if (/(^|\.)instagram\.com$/i.test(parsed.hostname)) {
+          const match = parsed.pathname.match(/^\/(p|reel|tv)\/([^/]+)\/?$/i);
+          return match ? "https://www.instagram.com/" + match[1].toLowerCase() + "/" + match[2] + "/" : source;
+        }
+        return source;
       } catch {
         return source;
+      }
+    }
+
+    async function readJsonResponse(response) {
+      const text = await response.text();
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new Error(response.ok
+          ? "服务返回了无法识别的数据"
+          : "解析服务暂时不可用（HTTP " + response.status + "），请稍后重试");
       }
     }
 
@@ -601,7 +618,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: submittedUrl }),
         });
-        const data = await r.json();
+        const data = await readJsonResponse(r);
         if (!data.success) throw new Error(data.error || "解析失败");
         render(data.data);
       } catch (err) {
@@ -618,7 +635,7 @@
       const play = d.url || "";
       const images = d.images || [];
       const platformName = String(d.platform || "").toLowerCase();
-      const imagePrefix = platformName.includes("twitter") ? "x" : "douyin";
+      const imagePrefix = platformName.includes("twitter") ? "x" : (platformName.includes("instagram") ? "instagram" : "douyin");
       const showsPlayCount = platformName.includes("tiktok") || platformName.includes("kuaishou");
       const avatar = d.avatar || "";
       const profile = d.profile_url || "";

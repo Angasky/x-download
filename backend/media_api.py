@@ -144,6 +144,7 @@ _KUAISHOU_DOMAINS = re.compile(
 )
 _YOUTUBE_DOMAINS = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
 _X_DOMAINS = re.compile(r"(^|\.)(x\.com|twitter\.com)$", re.IGNORECASE)
+_INSTAGRAM_DOMAINS = re.compile(r"(^|\.)(instagram\.com)$", re.IGNORECASE)
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _YOUTUBE_COOKIE_HELP = (
     "请配置 COOKIE，教程可查看 README.md 或 yt-dlp Wiki："
@@ -189,6 +190,24 @@ def _normalize_x_status_url(url: str) -> str:
 def _extract_x_status_id(url: str) -> str:
     match = re.search(r"/(?:status|statuses)/(\d{2,20})(?:/|$)", urllib.parse.urlparse(_normalize_x_status_url(url)).path)
     return match.group(1) if match else ""
+
+
+def _is_instagram_source(url: str) -> bool:
+    hostname = (urllib.parse.urlparse(_extract_url(url)).hostname or "").lower().rstrip(".")
+    return bool(_INSTAGRAM_DOMAINS.search(hostname))
+
+
+def _normalize_instagram_post_url(url: str) -> str:
+    source = _extract_url(url)
+    parsed = urllib.parse.urlparse(source)
+    hostname = (parsed.hostname or "").lower().rstrip(".")
+    if not _INSTAGRAM_DOMAINS.search(hostname):
+        return source
+    match = re.match(r"^/(p|reel|tv)/([^/?#]+)/?$", parsed.path, re.IGNORECASE)
+    if not match:
+        return source
+    kind, shortcode = match.groups()
+    return f"https://www.instagram.com/{kind.lower()}/{shortcode}/"
 
 
 def _friendly_error(url: str, error: Exception | str) -> str:
@@ -618,6 +637,66 @@ def _temporary_douyin_cookiefile() -> Path | None:
     return path
 
 
+def _instagram_extract(url: str) -> dict:
+    source = _normalize_instagram_post_url(url)
+    if yt_dlp is None:
+        raise RuntimeError("yt-dlp 未安装，请重新运行一键启动脚本")
+    options: dict[str, Any] = {
+        "quiet": True,
+        "no_warnings": True,
+        "nocolor": True,
+        "skip_download": True,
+        "socket_timeout": 30,
+        "nocheckcertificate": True,
+    }
+    if cookiefile := ytdlp_cookiefile():
+        options["cookiefile"] = cookiefile
+    with yt_dlp.YoutubeDL(options) as ydl:
+        raw = ydl.get_info_extractor("Instagram").extract(source)
+    if not isinstance(raw, dict):
+        raise RuntimeError("Instagram 返回了无效的作品数据")
+    entries = list(raw.get("entries") or [raw])
+    images: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("formats"):
+            continue
+        thumbnails = entry.get("thumbnails") or []
+        image_url = _pick_url(thumbnails) or entry.get("thumbnail") or ""
+        if image_url and image_url not in images:
+            images.append(image_url)
+    if not images:
+        return _ytdlp_extract(source)
+    first = next((entry for entry in entries if isinstance(entry, dict)), {})
+    channel = raw.get("channel") or first.get("channel") or ""
+    uploader = raw.get("uploader") or first.get("uploader") or channel
+    description = raw.get("description") or first.get("description") or ""
+    return {
+        "title": raw.get("title") or first.get("title") or "Instagram 图集",
+        "desc": description,
+        "thumbnail": images[0],
+        "duration": 0,
+        "uploader": uploader,
+        "unique_id": channel,
+        "uid": str(raw.get("uploader_id") or first.get("uploader_id") or ""),
+        "avatar": "",
+        "author_signature": "",
+        "profile_url": f"https://www.instagram.com/{channel}/" if channel else "",
+        "platform": "Instagram",
+        "play_count": raw.get("view_count"),
+        "digg_count": raw.get("like_count"),
+        "comment_count": raw.get("comment_count"),
+        "collect_count": None,
+        "share_count": None,
+        "url": images[0],
+        "source": source,
+        "type": "image",
+        "images": images,
+        "audio_url": "",
+        "audio_title": "",
+        "formats": [],
+    }
+
+
 def _fxtwitter_extract(url: str) -> dict:
     source = _normalize_x_status_url(url)
     status_id = _extract_x_status_id(source)
@@ -702,6 +781,7 @@ def _fxtwitter_extract(url: str) -> dict:
 
 def _ytdlp_extract(url: str) -> dict:
     url = _normalize_x_status_url(url)
+    url = _normalize_instagram_post_url(url)
     if yt_dlp is None:
         raise Exception("yt-dlp 未安装，请重新运行一键启动脚本")
     ydl_opts = {
@@ -794,6 +874,7 @@ def _ytdlp_extract(url: str) -> dict:
 
 async def _parse_url(url: str) -> dict:
     url = _normalize_x_status_url(url)
+    url = _normalize_instagram_post_url(url)
     if _is_douyin(url):
         try:
             return await _douk_parse(url)
@@ -816,6 +897,9 @@ async def _parse_url(url: str) -> dict:
     if _is_kuaishou(url):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(_executor, _kuaishou_extract, url)
+    if _is_instagram_source(url):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_executor, _instagram_extract, url)
     if _is_x_source(url):
         loop = asyncio.get_running_loop()
         try:
@@ -848,7 +932,7 @@ async def parse_media(request: Request):
     except Exception:
         return JSONResponse({"success": False, "error": "Invalid JSON"}, status_code=400)
 
-    url = _normalize_x_status_url((body.get("url") or "").strip())
+    url = _normalize_instagram_post_url(_normalize_x_status_url((body.get("url") or "").strip()))
     if not url:
         return JSONResponse({"success": False, "error": "url is required"}, status_code=400)
 
@@ -910,14 +994,14 @@ async def parse_with_ytdlp(request: Request):
         body = await request.json()
     except Exception:
         return JSONResponse({"success": False, "error": "Invalid JSON"}, status_code=400)
-    url = _normalize_x_status_url((body.get("url") or "").strip())
+    url = _normalize_instagram_post_url(_normalize_x_status_url((body.get("url") or "").strip()))
     if not url:
         return JSONResponse({"success": False, "error": "url is required"}, status_code=400)
     if _is_douyin(url):
         return JSONResponse({"success": False, "error": "抖音链接请使用 /api/info"}, status_code=400)
     try:
         loop = asyncio.get_event_loop()
-        extractor = _fxtwitter_extract if _is_x_source(url) else _ytdlp_extract
+        extractor = _fxtwitter_extract if _is_x_source(url) else (_instagram_extract if _is_instagram_source(url) else _ytdlp_extract)
         data = await loop.run_in_executor(_executor, extractor, url)
     except Exception as e:
         return JSONResponse({"success": False, "error": _friendly_error(url, e)}, status_code=422)
@@ -932,7 +1016,7 @@ async def download_media(request: Request):
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
-    url = _normalize_x_status_url((body.get("url") or "").strip())
+    url = _normalize_instagram_post_url(_normalize_x_status_url((body.get("url") or "").strip()))
     if not url:
         return JSONResponse({"error": "url is required"}, status_code=400)
     try:
@@ -975,16 +1059,16 @@ async def download_ytdlp_format(
 
 @router.get("/api/gallery-download", include_in_schema=False)
 async def download_gallery(source: str = ""):
-    source = _normalize_x_status_url(_extract_url(source))
-    if not source or not (_is_douyin_source(source) or _is_x_source(source)):
-        return JSONResponse({"error": "仅支持打包抖音或 X/Twitter 图集"}, status_code=400)
+    source = _normalize_instagram_post_url(_normalize_x_status_url(_extract_url(source)))
+    if not source or not (_is_douyin_source(source) or _is_x_source(source) or _is_instagram_source(source)):
+        return JSONResponse({"error": "仅支持打包抖音、X/Twitter 或 Instagram 图集"}, status_code=400)
     try:
         detail = await _parse_url(source)
         image_urls = [item for item in detail.get("images") or [] if isinstance(item, str) and item.startswith("http")]
         if not image_urls:
             return JSONResponse({"error": "该作品没有可下载的图片"}, status_code=404)
         loop = asyncio.get_running_loop()
-        filename_prefix = "x" if _is_x_source(source) else "douyin"
+        filename_prefix = "x" if _is_x_source(source) else ("instagram" if _is_instagram_source(source) else "douyin")
         archive, directory = await loop.run_in_executor(_executor, _build_gallery_archive, image_urls, filename_prefix)
         return FileResponse(
             archive,
