@@ -88,9 +88,10 @@ def _attachment_filename(requested: str | None, media: str, target: str) -> str:
     return ("image" if media_type.startswith("image/") else "video") + extension
 
 
-def _build_gallery_archive(image_urls: list[str]) -> tuple[Path, Path]:
+def _build_gallery_archive(image_urls: list[str], filename_prefix: str = "image") -> tuple[Path, Path]:
+    filename_prefix = re.sub(r"[^0-9A-Za-z_-]+", "-", filename_prefix).strip("-")[:24] or "image"
     directory = Path(tempfile.mkdtemp(prefix="x-download-gallery-"))
-    archive = directory / "douyin-images.zip"
+    archive = directory / f"{filename_prefix}-images.zip"
     request_headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
         "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
@@ -101,7 +102,7 @@ def _build_gallery_archive(image_urls: list[str]) -> tuple[Path, Path]:
                 request = urllib.request.Request(image_url, headers={**request_headers, "Referer": image_url})
                 with urllib.request.urlopen(request, timeout=60) as response:
                     filename = _attachment_filename(
-                        f"douyin-image-{index:02d}",
+                        f"{filename_prefix}-image-{index:02d}",
                         response.headers.get("content-type", "image/jpeg"),
                         image_url,
                     )
@@ -142,6 +143,7 @@ _KUAISHOU_DOMAINS = re.compile(
     re.IGNORECASE,
 )
 _YOUTUBE_DOMAINS = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
+_X_DOMAINS = re.compile(r"(^|\.)(x\.com|twitter\.com)$", re.IGNORECASE)
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _YOUTUBE_COOKIE_HELP = (
     "请配置 COOKIE，教程可查看 README.md 或 yt-dlp Wiki："
@@ -164,6 +166,29 @@ def _is_tiktok(url: str) -> bool:
 
 def _is_kuaishou(url: str) -> bool:
     return bool(_KUAISHOU_DOMAINS.search(url))
+
+
+def _is_x_source(url: str) -> bool:
+    hostname = (urllib.parse.urlparse(_extract_url(url)).hostname or "").lower().rstrip(".")
+    return bool(_X_DOMAINS.search(hostname))
+
+
+def _normalize_x_status_url(url: str) -> str:
+    source = _extract_url(url)
+    parsed = urllib.parse.urlparse(source)
+    hostname = (parsed.hostname or "").lower().rstrip(".")
+    if not _X_DOMAINS.search(hostname):
+        return source
+    match = re.match(r"^/([^/]+)/status/(\d{2,20})(?:/(?:photo|video)/\d+)?/?$", parsed.path, re.IGNORECASE)
+    if not match:
+        return source
+    username, status_id = match.groups()
+    return f"https://x.com/{username}/status/{status_id}/"
+
+
+def _extract_x_status_id(url: str) -> str:
+    match = re.search(r"/(?:status|statuses)/(\d{2,20})(?:/|$)", urllib.parse.urlparse(_normalize_x_status_url(url)).path)
+    return match.group(1) if match else ""
 
 
 def _friendly_error(url: str, error: Exception | str) -> str:
@@ -593,7 +618,90 @@ def _temporary_douyin_cookiefile() -> Path | None:
     return path
 
 
+def _fxtwitter_extract(url: str) -> dict:
+    source = _normalize_x_status_url(url)
+    status_id = _extract_x_status_id(source)
+    if not status_id:
+        raise RuntimeError("无法从 X/Twitter 链接提取状态 ID")
+    request = urllib.request.Request(
+        f"https://api.fxtwitter.com/2/status/{status_id}",
+        headers={"User-Agent": "x-download/1.0", "Accept": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.load(response)
+    status = payload.get("status") or {}
+    if payload.get("code") != 200 or not isinstance(status, dict) or not status.get("id"):
+        raise RuntimeError(payload.get("message") or "X/Twitter 作品不可用")
+    author = status.get("author") or {}
+    if not isinstance(author, dict):
+        author = {}
+    media = status.get("media") or {}
+    if not isinstance(media, dict):
+        media = {}
+
+    images: list[str] = []
+    for photo in media.get("photos") or []:
+        photo_url = photo.get("url") if isinstance(photo, dict) else ""
+        if photo_url and photo_url not in images:
+            images.append(photo_url)
+
+    formats: list[dict[str, Any]] = []
+    for video_index, video in enumerate(media.get("videos") or [], start=1):
+        if not isinstance(video, dict):
+            continue
+        candidates = video.get("formats") or [{"url": video.get("url")}]
+        for format_index, item in enumerate(candidates, start=1):
+            if not isinstance(item, dict) or not item.get("url"):
+                continue
+            formats.append(
+                {
+                    "url": item["url"],
+                    "format_id": f"fx-{video_index}-{format_index}",
+                    "quality": item.get("height") or video.get("height") or "原始画质",
+                    "ext": item.get("container") or "mp4",
+                    "width": item.get("width") or video.get("width"),
+                    "height": item.get("height") or video.get("height"),
+                    "vcodec": item.get("codec") or "h264",
+                    "acodec": "aac",
+                    "tbr": item.get("bitrate"),
+                    "filesize": item.get("size") or video.get("filesize"),
+                }
+            )
+    formats.sort(key=lambda item: (item.get("height") or 0, item.get("tbr") or 0), reverse=True)
+    video_url = formats[0]["url"] if formats else ""
+    if not images and not video_url:
+        raise RuntimeError("该 X/Twitter 作品没有可下载的媒体")
+    screen_name = author.get("screen_name") or ""
+    first_video = next((item for item in media.get("videos") or [] if isinstance(item, dict)), {})
+    return {
+        "title": status.get("text") or "X/Twitter 作品",
+        "desc": status.get("text") or "",
+        "thumbnail": images[0] if images else _pick_url(first_video.get("thumbnail_url")),
+        "duration": first_video.get("duration") or 0,
+        "uploader": author.get("name") or screen_name,
+        "unique_id": screen_name,
+        "uid": str(author.get("id") or ""),
+        "avatar": author.get("avatar_url") or "",
+        "author_signature": author.get("description") or "",
+        "profile_url": author.get("url") or (f"https://x.com/{screen_name}" if screen_name else ""),
+        "platform": "Twitter",
+        "play_count": status.get("views"),
+        "digg_count": status.get("likes"),
+        "comment_count": status.get("replies"),
+        "collect_count": status.get("bookmarks"),
+        "share_count": status.get("reposts"),
+        "url": video_url or images[0],
+        "source": source,
+        "type": "image" if images and not video_url else "video",
+        "images": images,
+        "audio_url": "",
+        "audio_title": "",
+        "formats": formats,
+    }
+
+
 def _ytdlp_extract(url: str) -> dict:
+    url = _normalize_x_status_url(url)
     if yt_dlp is None:
         raise Exception("yt-dlp 未安装，请重新运行一键启动脚本")
     ydl_opts = {
@@ -685,6 +793,7 @@ def _ytdlp_extract(url: str) -> dict:
 
 
 async def _parse_url(url: str) -> dict:
+    url = _normalize_x_status_url(url)
     if _is_douyin(url):
         try:
             return await _douk_parse(url)
@@ -707,6 +816,12 @@ async def _parse_url(url: str) -> dict:
     if _is_kuaishou(url):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(_executor, _kuaishou_extract, url)
+    if _is_x_source(url):
+        loop = asyncio.get_running_loop()
+        try:
+            return await loop.run_in_executor(_executor, _fxtwitter_extract, url)
+        except Exception:
+            return await loop.run_in_executor(_executor, _ytdlp_extract, url)
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(_executor, _ytdlp_extract, url)
 
@@ -733,7 +848,7 @@ async def parse_media(request: Request):
     except Exception:
         return JSONResponse({"success": False, "error": "Invalid JSON"}, status_code=400)
 
-    url = (body.get("url") or "").strip()
+    url = _normalize_x_status_url((body.get("url") or "").strip())
     if not url:
         return JSONResponse({"success": False, "error": "url is required"}, status_code=400)
 
@@ -795,14 +910,15 @@ async def parse_with_ytdlp(request: Request):
         body = await request.json()
     except Exception:
         return JSONResponse({"success": False, "error": "Invalid JSON"}, status_code=400)
-    url = (body.get("url") or "").strip()
+    url = _normalize_x_status_url((body.get("url") or "").strip())
     if not url:
         return JSONResponse({"success": False, "error": "url is required"}, status_code=400)
     if _is_douyin(url):
         return JSONResponse({"success": False, "error": "抖音链接请使用 /api/info"}, status_code=400)
     try:
         loop = asyncio.get_event_loop()
-        data = await loop.run_in_executor(_executor, _ytdlp_extract, url)
+        extractor = _fxtwitter_extract if _is_x_source(url) else _ytdlp_extract
+        data = await loop.run_in_executor(_executor, extractor, url)
     except Exception as e:
         return JSONResponse({"success": False, "error": _friendly_error(url, e)}, status_code=422)
     if not data or not data.get("url"):
@@ -816,7 +932,7 @@ async def download_media(request: Request):
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
-    url = (body.get("url") or "").strip()
+    url = _normalize_x_status_url((body.get("url") or "").strip())
     if not url:
         return JSONResponse({"error": "url is required"}, status_code=400)
     try:
@@ -859,20 +975,21 @@ async def download_ytdlp_format(
 
 @router.get("/api/gallery-download", include_in_schema=False)
 async def download_gallery(source: str = ""):
-    source = _extract_url(source)
-    if not source or not _is_douyin_source(source):
-        return JSONResponse({"error": "仅支持打包抖音图集"}, status_code=400)
+    source = _normalize_x_status_url(_extract_url(source))
+    if not source or not (_is_douyin_source(source) or _is_x_source(source)):
+        return JSONResponse({"error": "仅支持打包抖音或 X/Twitter 图集"}, status_code=400)
     try:
-        detail = await _douk_parse(source)
+        detail = await _parse_url(source)
         image_urls = [item for item in detail.get("images") or [] if isinstance(item, str) and item.startswith("http")]
         if not image_urls:
             return JSONResponse({"error": "该作品没有可下载的图片"}, status_code=404)
         loop = asyncio.get_running_loop()
-        archive, directory = await loop.run_in_executor(_executor, _build_gallery_archive, image_urls)
+        filename_prefix = "x" if _is_x_source(source) else "douyin"
+        archive, directory = await loop.run_in_executor(_executor, _build_gallery_archive, image_urls, filename_prefix)
         return FileResponse(
             archive,
             media_type="application/zip",
-            filename="douyin-images.zip",
+            filename=f"{filename_prefix}-images.zip",
             background=BackgroundTask(shutil.rmtree, directory, ignore_errors=True),
         )
     except Exception as error:

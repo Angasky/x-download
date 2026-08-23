@@ -573,6 +573,18 @@
       return Math.floor(seconds / 60) + " 分 " + (seconds % 60) + " 秒";
     }
 
+    function normalizeSubmittedUrl(value) {
+      const source = String(value || "").trim();
+      try {
+        const parsed = new URL(source);
+        if (!/(^|\.)(x\.com|twitter\.com)$/i.test(parsed.hostname)) return source;
+        const match = parsed.pathname.match(/^\/([^/]+)\/status\/(\d{2,20})(?:\/(?:photo|video)\/\d+)?\/?$/i);
+        return match ? "https://x.com/" + match[1] + "/status/" + match[2] + "/" : source;
+      } catch {
+        return source;
+      }
+    }
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       if (parsing) return;
@@ -582,10 +594,12 @@
       go.disabled = true;
       go.textContent = "正在解析…";
       try {
+        const submittedUrl = normalizeSubmittedUrl(urlEl.value);
+        urlEl.value = submittedUrl;
         const r = await fetch("/api/parse", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: urlEl.value.trim() }),
+          body: JSON.stringify({ url: submittedUrl }),
         });
         const data = await r.json();
         if (!data.success) throw new Error(data.error || "解析失败");
@@ -604,6 +618,7 @@
       const play = d.url || "";
       const images = d.images || [];
       const platformName = String(d.platform || "").toLowerCase();
+      const imagePrefix = platformName.includes("twitter") ? "x" : "douyin";
       const showsPlayCount = platformName.includes("tiktok") || platformName.includes("kuaishou");
       const avatar = d.avatar || "";
       const profile = d.profile_url || "";
@@ -642,7 +657,7 @@
         ? '<div class="gallery-head"><strong>作品图集</strong><span>共 ' + images.length + ' 张 · 可逐张下载原图</span></div><div class="gallery">' + images.map((u, index) =>
             '<figure class="gallery-item"><img src="' + escapeHtml(u) + '" alt="图集第 ' + (index + 1) + ' 张" loading="lazy" referrerpolicy="no-referrer" />' +
             '<span class="gallery-index">' + (index + 1) + ' / ' + images.length + '</span>' +
-            '<a class="gallery-download" href="' + escapeHtml(streamUrl(u, true, null, "douyin-image-" + String(index + 1).padStart(2, "0"))) + '">下载第 ' + (index + 1) + ' 张原图</a></figure>'
+            '<a class="gallery-download" href="' + escapeHtml(streamUrl(u, true, null, imagePrefix + "-image-" + String(index + 1).padStart(2, "0"))) + '">下载第 ' + (index + 1) + ' 张原图</a></figure>'
           ).join("") + "</div>"
         : selectedPlay
           ? '<video id="preview-video" controls playsinline src="' + escapeHtml(streamUrl(selectedPlay, false, formats[0])) + '" poster="' + escapeHtml(d.thumbnail || "") + '"></video>'
@@ -661,7 +676,7 @@
         : "";
       const downloadPicker = images.length ? galleryPicker : qualityPicker;
       const galleryArchiveUrl = "/api/gallery-download?source=" + encodeURIComponent(d.source || "");
-      const galleryAudioUrl = d.audio_url ? streamUrl(d.audio_url, true, null, "douyin-gallery-audio") : "";
+      const galleryAudioUrl = d.audio_url ? streamUrl(d.audio_url, true, null, imagePrefix + "-gallery-audio") : "";
       const dl = images.length
         ? '<a id="gallery-download-selected" class="primary" href="' + escapeHtml(galleryArchiveUrl) + '">下载全部图片</a>'
         : selectedPlay
