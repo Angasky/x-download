@@ -284,7 +284,7 @@ def windows_menu(args: argparse.Namespace) -> bool:
 
 
 def prompt_cookies(reconfigure: bool) -> None:
-    from backend.cookies import load_cookies, save_cookies, save_x_cookies, save_youtube_cookies
+    from backend.cookies import load_cookies, save_bilibili_cookies, save_cookies, save_x_cookies, save_youtube_cookies
 
     def prompt_pasted_value(label: str) -> str:
         first_line = input(label).strip()
@@ -315,6 +315,7 @@ def prompt_cookies(reconfigure: bool) -> None:
     print("     点任意 douyin.com 请求 -> 复制 Request Headers 的 Cookie")
     print("TikTok：同样从 https://www.tiktok.com 复制 Cookie（可回车跳过）")
     print("YouTube：可直接粘贴 Cookie-Editor 导出的完整 Cookie JSON")
+    print("哔哩哔哩：可粘贴 Cookie-Editor JSON，用于获取登录后可用的无水印高清 DASH")
     print("X/Twitter：可直接粘贴浏览器扩展导出的完整 Cookie JSON，用于受限视频")
     print("yt-dlp：Netscape cookies.txt 路径，可选；也可放到 config/ytdlp_cookies.txt")
     print()
@@ -331,12 +332,19 @@ def prompt_cookies(reconfigure: bool) -> None:
             )
         except (EOFError, StopIteration):
             youtube_cookie_export = ""
+        try:
+            bilibili_cookie_export = prompt_pasted_value(
+                "哔哩哔哩 Cookie JSON / 单行 Cookie（自动合并；回车保留）:\n"
+            )
+        except (EOFError, StopIteration):
+            bilibili_cookie_export = ""
     except EOFError:
         douyin = current.get("douyin_cookie", "")
         tiktok = current.get("tiktok_cookie", "")
         ytdlp = current.get("ytdlp_cookies_file", "")
         youtube_cookie_export = ""
         x_cookie_export = ""
+        bilibili_cookie_export = ""
 
     save_cookies({
         "douyin_cookie": douyin,
@@ -370,6 +378,12 @@ def prompt_cookies(reconfigure: bool) -> None:
             print(f"[ok] X/Twitter Cookie 已保存（{count} 项），可解析需要登录的视频")
         except ValueError as exc:
             print(f"[warning] X/Twitter Cookie 未保存：{exc}")
+    if bilibili_cookie_export:
+        try:
+            count = save_bilibili_cookies(bilibili_cookie_export, target)
+            print(f"[ok] 哔哩哔哩 Cookie 已保存（{count} 项），将尝试获取更多无水印清晰度")
+        except ValueError as exc:
+            print(f"[warning] 哔哩哔哩 Cookie 未保存：{exc}")
 
 
 def start_server(python: Path, host: str, port: int, open_browser: bool) -> None:

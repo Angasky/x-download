@@ -24,7 +24,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 
-from backend.cookies import load_cookies, ytdlp_cookiefile
+from backend.cookies import cookie_header_for_url, load_cookies, ytdlp_cookiefile
 from backend.douk_adapter import fetch_douyin_detail
 from backend.paths import DOUK_VENDOR
 
@@ -654,6 +654,8 @@ def _bilibili_extract(url: str) -> dict:
         "Referer": "https://www.bilibili.com/",
         "Accept": "application/json,text/plain,*/*",
     }
+    if bilibili_cookie := cookie_header_for_url("https://api.bilibili.com/"):
+        headers["Cookie"] = bilibili_cookie
     if (urllib.parse.urlparse(source).hostname or "").lower().endswith("b23.tv"):
         with urllib.request.urlopen(urllib.request.Request(source, headers=headers), timeout=20) as response:
             source = response.geturl()
